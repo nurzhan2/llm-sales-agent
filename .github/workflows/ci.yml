@@ -1,21 +1,17 @@
-name: tests
+name: CI
 
-# Каждый пуш в main и каждый PR — полный pytest на тех же версиях, что в проде
-# (constraints.txt). Красный крестик в GitHub = не выкатывать.
 on:
   push:
     branches: [main]
   pull_request:
 
 jobs:
-  pytest:
-    # Конкретная версия, не ubuntu-latest: latest переезжает на Ubuntu 26
-    # с 19.10.2026 — без нашего решения окружение тестов не меняется.
+  test:
+    # Pinned runner image: ubuntu-latest moves to a new major release on its own schedule.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # Настоящий Postgres: без него 88 тестов хранилищ (JSONB/ARRAY/ENUM,
-    # миграции) молча пропускаются, а это ровно тот слой, где хранится
-    # всё, что видит клиент.
+    # Real PostgreSQL: without it the storage tests (JSONB, ARRAY, ENUM, Alembic
+    # migrations) are skipped instead of run.
     services:
       postgres:
         image: postgres:16
@@ -40,5 +36,7 @@ jobs:
             requirements-dev.txt
             constraints.txt
       - run: pip install -r requirements-dev.txt -c constraints.txt
-      # -rs: причины пропусков в логе — пропущенный тест не должен быть невидимым.
+      - run: ruff check .
+      - run: ruff format --check .
+      # -rs prints skip reasons: a skipped test should never be invisible.
       - run: python -m pytest -q -p no:cacheprovider --timeout=120 -rs
