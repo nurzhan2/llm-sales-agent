@@ -63,7 +63,7 @@ flowchart LR
 
 ## Key decisions & trade-offs
 
-- **The model never produces a price.** Alternative: put the price list in the prompt. In replay runs the model miscomputed totals (for example, pricing two hours right after stating a three-hour minimum), so prices come from `calculate_price` and the last guard compares every amount in the reply with the tool results; a mismatch replaces the reply with a safe question or escalates. Cost: an extra tool round-trip per price question, and some replies get rewritten (11 of 113 LLM replies in a 10-day production window).
+- **The model never produces a price.** Alternative: put the price list in the prompt. In replay runs the model miscomputed totals (for example, pricing two hours right after stating a three-hour minimum), so prices come from `calculate_price` and the last guard compares every amount in the reply with the tool results; a mismatch replaces the reply with a safe question or escalates. Cost: an extra tool round-trip per price question, and some replies get rewritten (53 of 769 LLM replies between August and November 2026).
 - **One outbound door instead of checks at each call site.** Four code paths send messages; when checks lived at the call sites, a delayed follow-up once reached a client the agent was not allowed to write to. `OutboundGate` wraps the Avito client and every send method. Cost: a Redis and a DB read per send, and when Redis is down the kill switch and the daily cap fail closed (no sends) instead of open.
 - **Read-only YCLIENTS plus soft holds.** The integration token cannot write bookings: a manager enters the booking after the prepayment, hours after the bot quoted the slot, and until then YCLIENTS shows it as free. That gap produced double bookings, so a quoted slot is held in Redis for that chat (short after a quote, longer after the hand-off) and counts as busy for every other chat. Cost: a hold can block a slot for a client who never pays, until it expires.
 - **Detecting the human manager from message echoes.** Avito reports the bot's and the manager's messages with the same author id. The gate records each text before sending it, and an echo that matches is ours; anything else is the manager and pauses the bot for that chat. If the client then waits 30 minutes with no reply, the chat returns to the bot and the operator gets an alert. Cost: a text-matching heuristic; photo echoes needed a separate marker.
@@ -129,9 +129,23 @@ docs/           operations runbook, deploy guide, provider comparison (in Russia
 
 ## Results
 
-- **Production traffic, 20–30 October 2026** (measured from the production database): 57 active chats, 196 client messages, 121 agent replies sent. Reply latency from the client's message to the agent's reply: median 21 s, p90 28 s (n = 99), including the 10-second window that merges consecutive messages.
-- **Output guards in the same window:** 11 of 113 LLM replies were corrected or withheld before sending, most often a claim about free slots without an availability check (6).
+Measured on the production database, 25 August – 17 November 2026 (SQL over `messages`, `operator_actions`, `llm_meta`).
+
+| Metric | Value |
+|---|---|
+| Customer chats | 467 (1,466 customer messages, 719 agent replies delivered) |
+| First reply, agent | median 20.9 s, p90 29.3 s, 95.3% within 5 min (n = 617) |
+| First reply, human managers, same period | median 31 min, p90 10.9 h, 33.6% within 5 min (n = 235) |
+| Replies stopped by output guards | 53 of 769 LLM replies (6.9%): 33 "free" without an availability check, 9 price without a tool call, 5 wrong amount, 4 wrong date, 2 promises |
+| Model cost | 339.59 RUB in total; 0.44 RUB per reply; median 0.76 RUB per chat (n = 290) |
+| False "manager took over" events (echo race) | 32 of 230 before the fix, 0 of 126 after (29 Sep – 17 Nov) |
+| Listings / zones covered | 65 Avito listings, 9 zones |
+| Tests | 1,658 tests, 88% line coverage (`pytest --cov=app` with PostgreSQL); CI green |
+
+The agent's first-reply time includes the 10-second window that merges consecutive customer messages. Manager timings have up to 60 s error from the poller interval.
+
 - **Offline replay of 27 labelled dialogues, 146 turns, DeepSeek, August 2026** (`docs/PROVIDER_COMPARISON.md`): 29 of 29 `calculate_price` calls were valid on the first attempt; median turn latency 4.0 s; cost 8.05 RUB for the run (about 0.30 RUB per dialogue, priced as a cache miss). The most frequent violation was two questions in one message (26 cases), which led to the one-question guard.
+- **Not measured yet:** conversion to bookings (bookings are placed by the manager in YCLIENTS without a source tag) and uptime (no external monitoring).
 
 ## Limitations & roadmap
 
