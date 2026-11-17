@@ -18,9 +18,7 @@ app/avito/cursors.py). Поэтому здесь не сценарий, а св�
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from app.agent.loop import TurnResult
 from app.avito.cursors import InMemoryCursorStore
@@ -32,7 +30,7 @@ from app.ops.state import InMemoryOpsStore
 from app.pipeline import MessagePipeline
 
 OUR_USER_ID = "seller-1"
-NOW = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 NOW_TS = int(NOW.timestamp())
 # Порог: агент отвечает только на то, что пришло не раньше этого момента.
 CUTOFF_TS = NOW_TS - 3600
@@ -46,7 +44,9 @@ class _FakeAgentLoop:
     def __init__(self):
         self.calls: list[str] = []
 
-    async def run_turn(self, dialog_id, history, user_text, state=None, item_id=None, item_lookup=None):
+    async def run_turn(
+        self, dialog_id, history, user_text, state=None, item_id=None, item_lookup=None
+    ):
         self.calls.append(dialog_id)
         return TurnResult(text="Добрый день!")
 
@@ -61,11 +61,11 @@ class _FakeAvitoClient:
         self._messages = messages
 
     async def list_chats(self, *, limit=50, offset=0):
-        return {"chats": self._chats[offset:offset + limit]}
+        return {"chats": self._chats[offset : offset + limit]}
 
     async def get_messages(self, chat_id, *, limit=50, offset=0):
         batch = self._messages.get(chat_id, [])
-        return {"messages": batch[offset:offset + limit]}
+        return {"messages": batch[offset : offset + limit]}
 
 
 async def _resolved(value):
@@ -106,8 +106,11 @@ def _chat(chat_id: str, item_id: str, created: int, message_id: str, author="buy
 
 def _message(message_id: str, created: int, author="buyer") -> dict:
     return {
-        "id": message_id, "created": created, "author_id": author,
-        "type": "text", "content": {"text": "привет"},
+        "id": message_id,
+        "created": created,
+        "author_id": author,
+        "type": "text",
+        "content": {"text": "привет"},
     }
 
 
@@ -116,8 +119,12 @@ def _build_pipeline(settings: Settings):
     agent = _FakeAgentLoop()
     ops_service = OpsService(store=InMemoryOpsStore(), settings=settings)
     pipeline = MessagePipeline(
-        store=store, agent_loop=agent, ops_service=ops_service, settings=settings,
-        debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=agent,
+        ops_service=ops_service,
+        settings=settings,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
     return pipeline, agent
 
@@ -133,10 +140,11 @@ async def _settle() -> None:
 # Инвариант: поллер, десять проходов, ничего не меняется на стороне Авито
 # --------------------------------------------------------------------------
 
+
 async def test_ten_poller_passes_never_answer_a_chat_older_than_the_cutoff():
-    old_created_1 = CUTOFF_TS - 100 * 3600      # заведомо старше порога
-    old_created_2 = CUTOFF_TS - 1                # ровно на границе, тоже старше
-    fresh_created = CUTOFF_TS + 100              # заведомо новее порога
+    old_created_1 = CUTOFF_TS - 100 * 3600  # заведомо старше порога
+    old_created_2 = CUTOFF_TS - 1  # ровно на границе, тоже старше
+    fresh_created = CUTOFF_TS + 100  # заведомо новее порога
 
     chats = [
         _chat("old-1", "111", old_created_1, "m-old-1"),
@@ -153,8 +161,12 @@ async def test_ten_poller_passes_never_answer_a_chat_older_than_the_cutoff():
     pipeline, agent = _build_pipeline(settings)
     client = _FakeAvitoClient(chats, messages)
     poller = AvitoPoller(
-        client=client, pipeline=pipeline, cursors=InMemoryCursorStore(),
-        settings=settings, items_provider=lambda: _resolved({"111"}), now_fn=lambda: NOW,
+        client=client,
+        pipeline=pipeline,
+        cursors=InMemoryCursorStore(),
+        settings=settings,
+        items_provider=lambda: _resolved({"111"}),
+        now_fn=lambda: NOW,
     )
 
     for i in range(PASSES):
@@ -174,6 +186,7 @@ async def test_ten_poller_passes_never_answer_a_chat_older_than_the_cutoff():
 # То же правило — на пути вебхука, не только поллера
 # --------------------------------------------------------------------------
 
+
 async def test_the_same_rule_fires_on_the_webhook_path_too():
     """Правило живёт в конвейере, а не в поллере, именно ради этого пути:
     вебхук идёт через `handle_message` -> `_accept` напрямую, минуя поллер
@@ -181,16 +194,30 @@ async def test_the_same_rule_fires_on_the_webhook_path_too():
     settings = _settings()
     pipeline, agent = _build_pipeline(settings)
 
-    old_event = {"payload": {"value": {
-        "id": "m-old", "chat_id": "chat-old", "author_id": "buyer",
-        "item_id": "111", "content": {"text": "привет"},
-        "created": CUTOFF_TS - 100 * 3600,
-    }}}
-    fresh_event = {"payload": {"value": {
-        "id": "m-fresh", "chat_id": "chat-fresh", "author_id": "buyer",
-        "item_id": "111", "content": {"text": "привет"},
-        "created": CUTOFF_TS + 100,
-    }}}
+    old_event = {
+        "payload": {
+            "value": {
+                "id": "m-old",
+                "chat_id": "chat-old",
+                "author_id": "buyer",
+                "item_id": "111",
+                "content": {"text": "привет"},
+                "created": CUTOFF_TS - 100 * 3600,
+            }
+        }
+    }
+    fresh_event = {
+        "payload": {
+            "value": {
+                "id": "m-fresh",
+                "chat_id": "chat-fresh",
+                "author_id": "buyer",
+                "item_id": "111",
+                "content": {"text": "привет"},
+                "created": CUTOFF_TS + 100,
+            }
+        }
+    }
 
     assert await pipeline.handle_message(old_event, source="webhook") is True
     await _settle()
@@ -205,6 +232,7 @@ async def test_the_same_rule_fires_on_the_webhook_path_too():
 # Граница: created РОВНО НА пороге обязан получить ответ (>=, не >)
 # --------------------------------------------------------------------------
 
+
 async def test_message_created_exactly_at_the_cutoff_still_gets_an_answer():
     """Порог задаёт момент, «раньше которого» не отвечаем — включительно с
     самим порогом. `>` вместо `>=` здесь тихо сдвинул бы границу на секунду
@@ -213,11 +241,18 @@ async def test_message_created_exactly_at_the_cutoff_still_gets_an_answer():
     settings = _settings()
     pipeline, agent = _build_pipeline(settings)
 
-    boundary_event = {"payload": {"value": {
-        "id": "m-boundary", "chat_id": "chat-boundary", "author_id": "buyer",
-        "item_id": "111", "content": {"text": "привет"},
-        "created": CUTOFF_TS,
-    }}}
+    boundary_event = {
+        "payload": {
+            "value": {
+                "id": "m-boundary",
+                "chat_id": "chat-boundary",
+                "author_id": "buyer",
+                "item_id": "111",
+                "content": {"text": "привет"},
+                "created": CUTOFF_TS,
+            }
+        }
+    }
 
     assert await pipeline.handle_message(boundary_event, source="webhook") is True
     await _settle()
@@ -231,15 +266,23 @@ async def test_message_created_exactly_at_the_cutoff_still_gets_an_answer():
 # сообщений.
 # --------------------------------------------------------------------------
 
+
 async def test_unset_threshold_answers_nothing_not_even_a_brand_new_message():
     settings = _settings(agent_min_inbound_ts=0)
     pipeline, agent = _build_pipeline(settings)
 
-    brand_new_event = {"payload": {"value": {
-        "id": "m-new", "chat_id": "chat-new", "author_id": "buyer",
-        "item_id": "111", "content": {"text": "привет"},
-        "created": NOW_TS,  # свежее некуда — прямо сейчас
-    }}}
+    brand_new_event = {
+        "payload": {
+            "value": {
+                "id": "m-new",
+                "chat_id": "chat-new",
+                "author_id": "buyer",
+                "item_id": "111",
+                "content": {"text": "привет"},
+                "created": NOW_TS,  # свежее некуда — прямо сейчас
+            }
+        }
+    }
 
     assert await pipeline.handle_message(brand_new_event, source="webhook") is True
     await _settle()
@@ -255,8 +298,12 @@ async def test_unset_threshold_answers_nothing_via_the_poller_either():
     pipeline, agent = _build_pipeline(settings)
     client = _FakeAvitoClient(chats, messages)
     poller = AvitoPoller(
-        client=client, pipeline=pipeline, cursors=InMemoryCursorStore(),
-        settings=settings, items_provider=lambda: _resolved({"111"}), now_fn=lambda: NOW,
+        client=client,
+        pipeline=pipeline,
+        cursors=InMemoryCursorStore(),
+        settings=settings,
+        items_provider=lambda: _resolved({"111"}),
+        now_fn=lambda: NOW,
     )
 
     await poller.run_pass()

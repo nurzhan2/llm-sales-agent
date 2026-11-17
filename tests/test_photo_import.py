@@ -29,10 +29,10 @@ from app.media.photo_import import (
     validate_image,
 )
 
-
 # --------------------------------------------------------------------------
 # Нормализация и сопоставление папок
 # --------------------------------------------------------------------------
+
 
 def test_normalize_ignores_case_dashes_and_yo():
     assert normalize_name("Баня-Русский_Стиль") == normalize_name("баня русский стиль")
@@ -76,6 +76,7 @@ def test_unknown_folder_raises_with_helpful_message():
 # Валидация файлов
 # --------------------------------------------------------------------------
 
+
 def _make_image(path: Path, size=(800, 600), fmt="JPEG") -> Path:
     Image.new("RGB", size, color=(120, 140, 160)).save(path, fmt)
     return path
@@ -110,6 +111,7 @@ def test_validate_accepts_good_image(tmp_path):
 # Сжатие
 # --------------------------------------------------------------------------
 
+
 def test_small_image_is_not_touched(tmp_path):
     small = _make_image(tmp_path / "small.jpg", size=(400, 300))
     tmp_dir = tmp_path / "compressed"
@@ -137,6 +139,7 @@ def test_compression_keeps_original_file_untouched(tmp_path):
 # Хеширование
 # --------------------------------------------------------------------------
 
+
 def test_same_content_same_hash_different_name(tmp_path):
     a = _make_image(tmp_path / "a.jpg", size=(500, 400))
     b_path = tmp_path / "b.jpg"
@@ -154,6 +157,7 @@ def test_different_content_different_hash(tmp_path):
 # Точечная правка catalog.yaml — сохраняет комментарии
 # --------------------------------------------------------------------------
 
+
 @pytest.fixture
 def real_catalog_text() -> str:
     return (KB_DIR / "catalog.yaml").read_text(encoding="utf-8")
@@ -168,9 +172,12 @@ def test_patch_zone_photos_updates_only_target_zone(real_catalog_text):
     # «photos: [] у Гаража», то есть состояние живого catalog.yaml до первого
     # импорта; после импорта 2026-09-18 такой тест падал бы навсегда.
     import re
-    garage = r'- id: bath_garage.*?(?=- id: )'
-    assert (re.search(garage, patched, re.DOTALL).group()
-            == re.search(garage, real_catalog_text, re.DOTALL).group())
+
+    garage = r"- id: bath_garage.*?(?=- id: )"
+    assert (
+        re.search(garage, patched, re.DOTALL).group()
+        == re.search(garage, real_catalog_text, re.DOTALL).group()
+    )
 
 
 def test_patch_zone_photos_preserves_comments(real_catalog_text):
@@ -203,7 +210,7 @@ def test_patch_site_photos_updates_existing_category():
     text = "site_photos:\n  playground: [p1]\n  restroom: [r1]\n"
     patched = patch_site_photos(text, "playground", ["p1", "p2"])
     assert 'playground: ["p1", "p2"]' in patched
-    assert "restroom: [r1]" in patched      # другая категория не тронута
+    assert "restroom: [r1]" in patched  # другая категория не тронута
 
 
 def test_patched_catalog_still_loads(real_catalog_text, tmp_path, monkeypatch):
@@ -228,6 +235,7 @@ def test_patched_catalog_still_loads(real_catalog_text, tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 # Пайплайн: DRY_RUN
 # --------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sample_kb_dir(tmp_path):
@@ -268,7 +276,9 @@ async def test_dry_run_does_not_upload_or_touch_catalog(photo_root, sample_kb_di
     client = FakeAvitoClient()
 
     run = await import_root(
-        photo_root, dry_run=True, avito_client=client,
+        photo_root,
+        dry_run=True,
+        avito_client=client,
         catalog_path=sample_kb_dir / "catalog.yaml",
         manifest_path=sample_kb_dir / ".manifest.json",
     )
@@ -288,7 +298,9 @@ async def test_dry_run_reports_skipped_bad_files(tmp_path, sample_kb_dir):
     (zone_dir / "02_bad.txt").write_text("not an image")
 
     run = await import_root(
-        root, dry_run=True, avito_client=None,
+        root,
+        dry_run=True,
+        avito_client=None,
         catalog_path=sample_kb_dir / "catalog.yaml",
         manifest_path=sample_kb_dir / ".manifest.json",
     )
@@ -302,7 +314,9 @@ async def test_unmapped_folder_reported_but_does_not_stop_others(photo_root, sam
     _make_image(photo_root / "Совершенно неизвестная папка" / "1.jpg")
 
     run = await import_root(
-        photo_root, dry_run=True, avito_client=None,
+        photo_root,
+        dry_run=True,
+        avito_client=None,
         catalog_path=sample_kb_dir / "catalog.yaml",
         manifest_path=sample_kb_dir / ".manifest.json",
     )
@@ -314,7 +328,8 @@ async def test_unmapped_folder_reported_but_does_not_stop_others(photo_root, sam
 
 async def test_dry_run_requires_no_avito_client(photo_root, sample_kb_dir):
     run = await import_root(
-        photo_root, dry_run=True,
+        photo_root,
+        dry_run=True,
         catalog_path=sample_kb_dir / "catalog.yaml",
         manifest_path=sample_kb_dir / ".manifest.json",
     )
@@ -324,7 +339,8 @@ async def test_dry_run_requires_no_avito_client(photo_root, sample_kb_dir):
 async def test_live_run_without_client_raises(photo_root, sample_kb_dir):
     with pytest.raises(ValueError, match="avito_client"):
         await import_root(
-            photo_root, dry_run=False,
+            photo_root,
+            dry_run=False,
             catalog_path=sample_kb_dir / "catalog.yaml",
             manifest_path=sample_kb_dir / ".manifest.json",
         )
@@ -334,17 +350,20 @@ async def test_live_run_without_client_raises(photo_root, sample_kb_dir):
 # Пайплайн: реальная загрузка (с фейковым клиентом) и идемпотентность
 # --------------------------------------------------------------------------
 
+
 async def test_live_run_uploads_and_updates_catalog(photo_root, sample_kb_dir):
     client = FakeAvitoClient()
     catalog_path = sample_kb_dir / "catalog.yaml"
 
     run = await import_root(
-        photo_root, dry_run=False, avito_client=client,
+        photo_root,
+        dry_run=False,
+        avito_client=client,
         catalog_path=catalog_path,
         manifest_path=sample_kb_dir / ".manifest.json",
     )
 
-    assert len(client.uploaded) == 3       # 2 в бане + 1 на площадке
+    assert len(client.uploaded) == 3  # 2 в бане + 1 на площадке
     bath_result = next(r for r in run.results if r.key == "bath_russian")
     assert bath_result.uploaded == 2
     assert len(bath_result.image_ids) == 2
@@ -360,15 +379,21 @@ async def test_rerun_is_idempotent_no_duplicate_uploads(photo_root, sample_kb_di
     manifest_path = sample_kb_dir / ".manifest.json"
 
     first = await import_root(
-        photo_root, dry_run=False, avito_client=client,
-        catalog_path=catalog_path, manifest_path=manifest_path,
+        photo_root,
+        dry_run=False,
+        avito_client=client,
+        catalog_path=catalog_path,
+        manifest_path=manifest_path,
     )
     first_ids = {r.key: r.image_ids for r in first.results}
     assert len(client.uploaded) == 3
 
     second = await import_root(
-        photo_root, dry_run=False, avito_client=client,
-        catalog_path=catalog_path, manifest_path=manifest_path,
+        photo_root,
+        dry_run=False,
+        avito_client=client,
+        catalog_path=catalog_path,
+        manifest_path=manifest_path,
     )
 
     # Второй прогон не грузит те же файлы повторно.
@@ -386,18 +411,24 @@ async def test_new_file_added_later_only_uploads_the_new_one(photo_root, sample_
     manifest_path = sample_kb_dir / ".manifest.json"
 
     await import_root(
-        photo_root, dry_run=False, avito_client=client,
-        catalog_path=catalog_path, manifest_path=manifest_path,
+        photo_root,
+        dry_run=False,
+        avito_client=client,
+        catalog_path=catalog_path,
+        manifest_path=manifest_path,
     )
     assert len(client.uploaded) == 3
 
     _make_image(photo_root / "Баня Русский стиль" / "03_новое.jpg", size=(900, 700))
     run = await import_root(
-        photo_root, dry_run=False, avito_client=client,
-        catalog_path=catalog_path, manifest_path=manifest_path,
+        photo_root,
+        dry_run=False,
+        avito_client=client,
+        catalog_path=catalog_path,
+        manifest_path=manifest_path,
     )
 
-    assert len(client.uploaded) == 4        # ровно один новый файл
+    assert len(client.uploaded) == 4  # ровно один новый файл
     bath_result = next(r for r in run.results if r.key == "bath_russian")
     assert bath_result.uploaded == 1
     assert bath_result.reused == 2
@@ -411,8 +442,11 @@ async def test_renamed_file_is_not_reuploaded(photo_root, sample_kb_dir):
     manifest_path = sample_kb_dir / ".manifest.json"
 
     await import_root(
-        photo_root, dry_run=False, avito_client=client,
-        catalog_path=catalog_path, manifest_path=manifest_path,
+        photo_root,
+        dry_run=False,
+        avito_client=client,
+        catalog_path=catalog_path,
+        manifest_path=manifest_path,
     )
     assert len(client.uploaded) == 3
 
@@ -420,10 +454,13 @@ async def test_renamed_file_is_not_reuploaded(photo_root, sample_kb_dir):
     old.rename(photo_root / "Баня Русский стиль" / "01_переименован.jpg")
 
     await import_root(
-        photo_root, dry_run=False, avito_client=client,
-        catalog_path=catalog_path, manifest_path=manifest_path,
+        photo_root,
+        dry_run=False,
+        avito_client=client,
+        catalog_path=catalog_path,
+        manifest_path=manifest_path,
     )
-    assert len(client.uploaded) == 3        # без изменений — тот же контент
+    assert len(client.uploaded) == 3  # без изменений — тот же контент
 
 
 class FlakyAvitoClient(FakeAvitoClient):
@@ -442,8 +479,11 @@ async def test_the_manifest_survives_a_failure_mid_import(photo_root, sample_kb_
 
     with pytest.raises(ConnectionError):
         await import_root(
-            photo_root, dry_run=False, avito_client=FlakyAvitoClient(),
-            catalog_path=sample_kb_dir / "catalog.yaml", manifest_path=manifest_path,
+            photo_root,
+            dry_run=False,
+            avito_client=FlakyAvitoClient(),
+            catalog_path=sample_kb_dir / "catalog.yaml",
+            manifest_path=manifest_path,
         )
 
     saved = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -453,10 +493,13 @@ async def test_the_manifest_survives_a_failure_mid_import(photo_root, sample_kb_
     # Повторный запуск тот же кадр не грузит — только недостающие.
     retry = FakeAvitoClient()
     await import_root(
-        photo_root, dry_run=False, avito_client=retry,
-        catalog_path=sample_kb_dir / "catalog.yaml", manifest_path=manifest_path,
+        photo_root,
+        dry_run=False,
+        avito_client=retry,
+        catalog_path=sample_kb_dir / "catalog.yaml",
+        manifest_path=manifest_path,
     )
-    assert len(retry.uploaded) == 2          # из трёх файлов один уже в Авито
+    assert len(retry.uploaded) == 2  # из трёх файлов один уже в Авито
 
 
 def test_numeric_looking_ids_stay_strings_after_a_catalog_reload(sample_kb_dir):
@@ -467,8 +510,9 @@ def test_numeric_looking_ids_stay_strings_after_a_catalog_reload(sample_kb_dir):
 
     catalog = sample_kb_dir / "catalog.yaml"
     catalog.write_text(
-        patch_zone_photos(catalog.read_text(encoding="utf-8"), "bath_russian",
-                          ["2654321", "2654321.120"]),
+        patch_zone_photos(
+            catalog.read_text(encoding="utf-8"), "bath_russian", ["2654321", "2654321.120"]
+        ),
         encoding="utf-8",
     )
     kb = load_catalog(sample_kb_dir)

@@ -17,9 +17,8 @@ item_zone_map ВСЕГДА главнее: эта функция зовётся 
 from __future__ import annotations
 
 import re
-from typing import Optional
 
-_RULES: list[tuple[str, Optional[str], Optional[str]]] = [
+_RULES: list[tuple[str, str | None, str | None]] = [
     # порядок важен: специфичное раньше общего
     (r"сертификат", None, "bath"),
     (r"рыцар|средневеков|замок", "bath_knight", None),
@@ -37,7 +36,7 @@ _RULES: list[tuple[str, Optional[str], Optional[str]]] = [
 ]
 
 
-def zone_from_title(title: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+def zone_from_title(title: str | None) -> tuple[str | None, str | None]:
     if not title:
         return None, None
     text = title.lower().replace("ё", "е")

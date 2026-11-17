@@ -6,8 +6,6 @@ Postgres.
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import pytest
 
 from app.kb.editable import field_by_key
@@ -28,6 +26,7 @@ def editor():
 # Наложение / чтение текущего значения
 # --------------------------------------------------------------------------
 
+
 async def test_current_value_before_any_edit_matches_yaml(editor):
     field = field_by_key("we_hour")
     value = await editor.current_value(field, "dome_bags")
@@ -45,6 +44,7 @@ async def test_current_kb_without_overrides_equals_plain_load_catalog(editor):
 # --------------------------------------------------------------------------
 # Правка сохраняется и применяется
 # --------------------------------------------------------------------------
+
 
 async def test_preview_shows_was_and_will_be(editor):
     field = field_by_key("we_hour")
@@ -97,6 +97,7 @@ async def test_edit_survives_a_new_editor_instance(editor):
 # Невалидное значение отклоняется
 # --------------------------------------------------------------------------
 
+
 async def test_negative_price_is_rejected(editor):
     with pytest.raises(OverrideError, match="отрицательной"):
         await editor.preview("we_hour", "-500", USER, "dome_bags")
@@ -139,7 +140,7 @@ async def test_rejected_edit_is_not_saved(editor):
 
     assert await editor.store.list_active() == []
     value = await editor.current_value(field_by_key("we_hour"), "dome_bags")
-    assert value["value"] == 1500     # исходное значение из YAML
+    assert value["value"] == 1500  # исходное значение из YAML
 
 
 async def test_preview_reruns_full_kb_validation_not_just_the_field_parser(editor, monkeypatch):
@@ -176,6 +177,7 @@ async def test_zone_field_without_zone_id_is_rejected(editor):
 # Откат
 # --------------------------------------------------------------------------
 
+
 async def test_revert_restores_the_previous_value(editor):
     preview = await editor.preview("we_hour", "1800", USER, "dome_bags")
     await editor.apply(preview, USER)
@@ -193,7 +195,7 @@ async def test_revert_with_nothing_to_revert_returns_none(editor):
 
 async def test_revert_only_undoes_the_most_recent_edit(editor):
     p1 = await editor.preview("we_hour", "1800", USER, "dome_bags")
-    r1 = await editor.apply(p1, USER)
+    await editor.apply(p1, USER)
     p2 = await editor.preview("wd_hour", "1200", USER, "dome_bags")
     await editor.apply(p2, USER)
 
@@ -203,7 +205,7 @@ async def test_revert_only_undoes_the_most_recent_edit(editor):
     we = await editor.current_value(field_by_key("we_hour"), "dome_bags")
     wd = await editor.current_value(field_by_key("wd_hour"), "dome_bags")
     assert we["value"] == 1800
-    assert wd["value"] == 800        # вернулось к исходному (dome_bags.weekday_per_hour)
+    assert wd["value"] == 800  # вернулось к исходному (dome_bags.weekday_per_hour)
 
 
 async def test_reverted_row_is_not_reverted_again(editor):
@@ -230,12 +232,13 @@ async def test_journal_keeps_both_the_edit_and_the_revert(editor):
 # Пересчёт примера цены (пункт 4)
 # --------------------------------------------------------------------------
 
+
 async def test_apply_returns_a_recalculated_price_example(editor):
     preview = await editor.preview("we_hour", "1000", USER, "dome_bags")
     result = await editor.apply(preview, USER)
 
     assert result.price_example is not None
-    assert "4000" in result.price_example          # 1000 ₽/ч × 4 ч
+    assert "4000" in result.price_example  # 1000 ₽/ч × 4 ч
     assert "суббот" in result.price_example.lower()
 
 
@@ -245,7 +248,7 @@ async def test_price_example_reflects_the_new_value_not_the_old(editor):
     result = await editor.apply(preview, USER)
 
     assert before != result.price_example
-    assert "12000" in result.price_example          # 3000 ₽/ч × 4 ч
+    assert "12000" in result.price_example  # 3000 ₽/ч × 4 ч
 
 
 async def test_revert_also_recalculates_the_price_example(editor):
@@ -255,7 +258,7 @@ async def test_revert_also_recalculates_the_price_example(editor):
     result = await editor.revert_last(USER)
 
     assert result.price_example is not None
-    assert "6000" in result.price_example           # обратно к исходным 1500 × 4
+    assert "6000" in result.price_example  # обратно к исходным 1500 × 4
 
 
 async def test_price_example_is_none_for_a_schedule_field(editor):

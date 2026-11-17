@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -19,12 +19,12 @@ from app.ops.state import InMemoryOpsStore
 
 class _FakeDispatcherOk:
     async def start_polling(self, bot):
-        await asyncio.sleep(0)   # ведёт себя как реальный опрос — просто не падает
+        await asyncio.sleep(0)  # ведёт себя как реальный опрос — просто не падает
 
 
 class _FakeDispatcherRunsForever:
     async def start_polling(self, bot):
-        await asyncio.Event().wait()   # как реальный опрос — висит, пока не отменят
+        await asyncio.Event().wait()  # как реальный опрос — висит, пока не отменят
 
 
 class _FakeDispatcherCrashes:
@@ -51,12 +51,13 @@ async def test_supervised_polling_propagates_cancellation():
 
 
 async def test_supervised_polling_returns_normally_when_dispatcher_succeeds():
-    await supervised_bot_polling(_FakeDispatcherOk(), bot=None)   # не должно бросить
+    await supervised_bot_polling(_FakeDispatcherOk(), bot=None)  # не должно бросить
 
 
 # --------------------------------------------------------------------------
 # build_touch_sender — маршрутизация DRY_RUN vs реальная отправка
 # --------------------------------------------------------------------------
+
 
 class _FakeOpsBot:
     def __init__(self):
@@ -87,7 +88,7 @@ async def test_dry_run_queues_for_approval_and_notifies_operator():
     assert pending is not None and pending.text == "Вы где-то затерялись?"
     assert len(ops_bot.sent) == 1
     assert ops_bot.sent[0]["chat_id"] == "-100"
-    assert avito.sent == []   # DRY_RUN — реальной отправки быть не должно
+    assert avito.sent == []  # DRY_RUN — реальной отправки быть не должно
 
 
 async def test_dry_run_without_bot_still_queues_for_approval():
@@ -121,6 +122,7 @@ async def test_live_mode_sends_directly_without_queueing():
 # supervised_touch_scheduler — устойчивость к сбою одного прохода
 # --------------------------------------------------------------------------
 
+
 class _FakeStoreAlwaysFails:
     async def list_due(self, now, max_count):
         raise RuntimeError("база недоступна")
@@ -137,11 +139,15 @@ async def test_supervised_scheduler_survives_a_failing_pass_and_keeps_running(ca
 
     task = asyncio.create_task(
         supervised_touch_scheduler(
-            _FakeStoreAlwaysFails(), kb, send,
-            delay_minutes=30, max_count=3, interval_seconds=0,
+            _FakeStoreAlwaysFails(),
+            kb,
+            send,
+            delay_minutes=30,
+            max_count=3,
+            interval_seconds=0,
             # Полдень — заведомо внутри рабочего окна 9:00-23:00, иначе тест
             # ловил бы флак в зависимости от того, во сколько его гоняют.
-            now_fn=lambda: datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc),
+            now_fn=lambda: datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
         )
     )
     with caplog.at_level("ERROR", logger="parmangal"):
@@ -151,7 +157,7 @@ async def test_supervised_scheduler_survives_a_failing_pass_and_keeps_running(ca
                 break
 
     assert "pass failed" in caplog.text
-    assert not task.done()   # сбой одного прохода не должен останавливать цикл
+    assert not task.done()  # сбой одного прохода не должен останавливать цикл
 
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -173,7 +179,12 @@ async def test_supervised_scheduler_propagates_cancellation():
 
     task = asyncio.create_task(
         supervised_touch_scheduler(
-            _EmptyStore(), kb, send, delay_minutes=30, max_count=3, interval_seconds=999,
+            _EmptyStore(),
+            kb,
+            send,
+            delay_minutes=30,
+            max_count=3,
+            interval_seconds=999,
         )
     )
     await asyncio.sleep(0)
@@ -193,6 +204,7 @@ async def test_supervised_scheduler_propagates_cancellation():
 # собирают собственное голое FastAPI-приложение и подставляют фейки, то есть
 # настоящую проводку не трогают вовсе. Поэтому проверка именно тут: поднять
 # РЕАЛЬНОЕ приложение и посмотреть, что оказалось в state.
+
 
 def _real_app_state():
     """Поднимает настоящее приложение через его lifespan и отдаёт state.
@@ -219,7 +231,9 @@ def test_lifespan_wires_all_four_admin_providers():
 
     for name in ("dialog_provider", "lead_provider", "concession_provider", "cost_provider"):
         provider = getattr(state, name, None)
-        assert provider is not None, f"app.state.{name} не выставлен — страница админки будет пустой"
+        assert provider is not None, (
+            f"app.state.{name} не выставлен — страница админки будет пустой"
+        )
         assert isinstance(provider, SqlAlchemyAdminQueries)
 
 
@@ -417,6 +431,7 @@ def test_startup_says_booking_is_on_only_when_everything_is_ready(monkeypatch):
 # Предохранитель по расходу: проводка и стартовый лог
 # --------------------------------------------------------------------------
 
+
 def test_lifespan_wires_the_cost_guard_into_the_agent_loop():
     """Ровно тот дефект, ради которого это делалось: класс существовал и был
     покрыт тестами, но не создавался нигде, кроме них, — лимит расхода был
@@ -479,14 +494,14 @@ async def test_the_cost_limit_alerts_the_operator_in_telegram():
     guard = build_cost_guard(settings, ops_bot=_Bot())
 
     guard.add(Decimal("150"))
-    await asyncio.sleep(0)          # даём созданной задаче отработать
+    await asyncio.sleep(0)  # даём созданной задаче отработать
 
     assert len(sent) == 1
     chat_id, text = sent[0]
     assert chat_id == "-100500"
     assert "ЛИМИТ РАСХОДА" in text
-    assert "150" in text            # сколько именно потрачено
-    assert "/resume" in text        # чем снимать — само не отпустит
+    assert "150" in text  # сколько именно потрачено
+    assert "/resume" in text  # чем снимать — само не отпустит
 
 
 def test_a_missing_telegram_still_pauses_the_agent():
@@ -495,7 +510,7 @@ def test_a_missing_telegram_still_pauses_the_agent():
     from app.config import Settings
     from app.main import build_cost_guard
 
-    settings = Settings(daily_cost_limit_rub=Decimal("100"))   # без ops-чата
+    settings = Settings(daily_cost_limit_rub=Decimal("100"))  # без ops-чата
     guard = build_cost_guard(settings, ops_bot=None)
 
     guard.add(Decimal("150"))
@@ -561,7 +576,9 @@ def test_startup_names_the_daily_limit_when_it_is_set(monkeypatch):
     """Настроенный лимит тоже виден: без этой строки «300» и «лимита нет»
     выглядят в логе одинаково — никак."""
     text = _startup_log(
-        monkeypatch, {"OUTBOUND_DAILY_LIMIT": "300"}, level=logging.INFO,
+        monkeypatch,
+        {"OUTBOUND_DAILY_LIMIT": "300"},
+        level=logging.INFO,
     )
 
     assert "OUTBOUND_DAILY_LIMIT=300" in text
@@ -584,6 +601,7 @@ def test_a_set_daily_limit_is_not_a_warning(monkeypatch):
 # входящее, — воркер отложенных касаний. Остальные исходящие порождаются
 # либо ответом на сообщение клиента, либо действием оператора.
 # --------------------------------------------------------------------------
+
 
 def test_touches_disabled_says_so_and_starts_no_worker(monkeypatch):
     """Выключено — воркер не запущен, и об этом сказано в стартовом логе.

@@ -43,8 +43,7 @@ async def seed_item_zone_map(listings: list[Listing]) -> int:
     session_factory = get_sessionmaker()
     async with session_factory() as session:
         existing = {
-            row.item_id: row
-            for row in (await session.execute(select(ItemZoneMap))).scalars().all()
+            row.item_id: row for row in (await session.execute(select(ItemZoneMap))).scalars().all()
         }
         for listing in listings:
             row = existing.get(listing.item_id)
@@ -60,16 +59,25 @@ async def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"куда писать CSV (по умолчанию {DEFAULT_OUT})")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
-        "--status", default="active",
+        "--out",
+        type=Path,
+        default=DEFAULT_OUT,
+        help=f"куда писать CSV (по умолчанию {DEFAULT_OUT})",
+    )
+    parser.add_argument(
+        "--status",
+        default="active",
         help="статусы через запятую: active,removed,old,blocked,rejected (по умолчанию active)",
     )
     parser.add_argument(
-        "--seed-map", action="store_true",
+        "--seed-map",
+        action="store_true",
         help="дополнительно записать item_id и заголовок в item_zone_map "
-             "(zone_id/category не трогаются — это ручной маппинг)",
+        "(zone_id/category не трогаются — это ручной маппинг)",
     )
     args = parser.parse_args()
 
@@ -85,8 +93,14 @@ async def main() -> int:
         writer.writerow(["item_id", "title", "url", "status", "price", "address"])
         for listing in listings:
             writer.writerow(
-                [listing.item_id, listing.title, listing.url or "", listing.status,
-                 listing.price if listing.price is not None else "", listing.address or ""]
+                [
+                    listing.item_id,
+                    listing.title,
+                    listing.url or "",
+                    listing.status,
+                    listing.price if listing.price is not None else "",
+                    listing.address or "",
+                ]
             )
 
     print(f"Объявлений: {len(listings)}")
@@ -94,8 +108,7 @@ async def main() -> int:
 
     if args.seed_map:
         seeded = await seed_item_zone_map(listings)
-        print(f"В item_zone_map записано заголовков: {seeded} "
-              "(zone_id/category не изменялись)")
+        print(f"В item_zone_map записано заголовков: {seeded} (zone_id/category не изменялись)")
     return 0
 
 

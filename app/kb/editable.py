@@ -22,8 +22,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 from app.kb.overrides import OverrideError
 
@@ -113,7 +114,7 @@ class EditableField:
 
     key: str
     label: str
-    kind: str                       # money | hours | capacity | time | dates
+    kind: str  # money | hours | capacity | time | dates
     parse: Callable[[str], Any]
     hint: str
     # Шаблон пути; {zone} подставляется для зональных полей.
@@ -123,7 +124,7 @@ class EditableField:
     # значение прямо по пути (например, working_window.from).
     is_disputed_leaf: bool = True
     # Ограничить поле категориями зон; None — доступно всем.
-    categories: Optional[tuple[str, ...]] = None
+    categories: tuple[str, ...] | None = None
 
 
 _HOURLY = ("bath", "dome", "grill", "tent")
@@ -131,48 +132,72 @@ _DAILY = ("house", "yurt")
 
 ZONE_FIELDS: tuple[EditableField, ...] = (
     EditableField(
-        key="wd_hour", label="Будни, ₽/час", kind="money", parse=_parse_money,
+        key="wd_hour",
+        label="Будни, ₽/час",
+        kind="money",
+        parse=_parse_money,
         hint="Цена за час в будний день, например: 2500",
         path_template="$.catalog.zones[id={zone}].pricing.weekday_per_hour",
         categories=_HOURLY,
     ),
     EditableField(
-        key="we_hour", label="Выходные, ₽/час", kind="money", parse=_parse_money,
+        key="we_hour",
+        label="Выходные, ₽/час",
+        kind="money",
+        parse=_parse_money,
         hint="Цена за час в выходной, например: 3500",
         path_template="$.catalog.zones[id={zone}].pricing.weekend_per_hour",
         categories=_HOURLY,
     ),
     EditableField(
-        key="wd_day", label="Будни, ₽/сутки", kind="money", parse=_parse_money,
+        key="wd_day",
+        label="Будни, ₽/сутки",
+        kind="money",
+        parse=_parse_money,
         hint="Цена за сутки в будни, например: 7000",
         path_template="$.catalog.zones[id={zone}].pricing.weekday_per_day",
         categories=("house",),
     ),
     EditableField(
-        key="we_day", label="Выходные, ₽/сутки", kind="money", parse=_parse_money,
+        key="we_day",
+        label="Выходные, ₽/сутки",
+        kind="money",
+        parse=_parse_money,
         hint="Цена за сутки в выходной, например: 15000",
         path_template="$.catalog.zones[id={zone}].pricing.weekend_per_day",
         categories=("house",),
     ),
     EditableField(
-        key="per_day", label="₽/сутки", kind="money", parse=_parse_money,
+        key="per_day",
+        label="₽/сутки",
+        kind="money",
+        parse=_parse_money,
         hint="Цена за сутки, например: 4000",
         path_template="$.catalog.zones[id={zone}].pricing.per_day",
         categories=("yurt",),
     ),
     EditableField(
-        key="min_h", label="Минимум часов", kind="hours", parse=_parse_hours,
+        key="min_h",
+        label="Минимум часов",
+        kind="hours",
+        parse=_parse_hours,
         hint="Минимальное время аренды в часах, например: 3",
         path_template="$.catalog.zones[id={zone}].pricing.min_hours",
         categories=_HOURLY,
     ),
     EditableField(
-        key="cap", label="Вместимость, гостей", kind="capacity", parse=_parse_capacity,
+        key="cap",
+        label="Вместимость, гостей",
+        kind="capacity",
+        parse=_parse_capacity,
         hint="Сколько гостей помещается, например: 12",
         path_template="$.catalog.zones[id={zone}].capacity",
     ),
     EditableField(
-        key="pkg", label="Пакет на день, ₽", kind="money", parse=_parse_money,
+        key="pkg",
+        label="Пакет на день, ₽",
+        kind="money",
+        parse=_parse_money,
         hint="Цена пакета на весь день, например: 5000",
         path_template="$.catalog.zones[id={zone}].day_package.price",
     ),
@@ -180,28 +205,35 @@ ZONE_FIELDS: tuple[EditableField, ...] = (
 
 SCHEDULE_FIELDS: tuple[EditableField, ...] = (
     EditableField(
-        key="work_from", label="Начало рабочего дня", kind="time", parse=_parse_time,
+        key="work_from",
+        label="Начало рабочего дня",
+        kind="time",
+        parse=_parse_time,
         hint="Во сколько открываемся, формат ЧЧ:ММ, например: 09:00",
         path_template="$.catalog.constants.working_window.from",
         is_disputed_leaf=False,
     ),
     EditableField(
-        key="work_to", label="Конец рабочего дня", kind="time", parse=_parse_time,
+        key="work_to",
+        label="Конец рабочего дня",
+        kind="time",
+        parse=_parse_time,
         hint="Во сколько закрываемся, формат ЧЧ:ММ, например: 23:00",
         path_template="$.catalog.constants.working_window.to",
         is_disputed_leaf=False,
     ),
     EditableField(
-        key="holidays", label="Праздничные даты", kind="dates", parse=_parse_dates,
+        key="holidays",
+        label="Праздничные даты",
+        kind="dates",
+        parse=_parse_dates,
         hint="Даты через запятую в формате ММ-ДД, например: 01-01, 02-23, 03-08",
         path_template="$.catalog.constants.holidays.dates",
         is_disputed_leaf=False,
     ),
 )
 
-ALL_FIELDS: dict[str, EditableField] = {
-    f.key: f for f in (*ZONE_FIELDS, *SCHEDULE_FIELDS)
-}
+ALL_FIELDS: dict[str, EditableField] = {f.key: f for f in (*ZONE_FIELDS, *SCHEDULE_FIELDS)}
 
 
 def field_by_key(key: str) -> EditableField:

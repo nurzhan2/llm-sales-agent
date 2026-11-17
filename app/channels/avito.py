@@ -17,7 +17,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from tenacity import (
@@ -53,8 +53,7 @@ class AvitoTokenError(RuntimeError):
 def _assert_spec_verified() -> None:
     if not ep.SPEC_VERIFIED:
         raise SpecNotVerifiedError(
-            "app/channels/avito_endpoints.py: SPEC_VERIFIED=False — "
-            "запросы к Авито заблокированы."
+            "app/channels/avito_endpoints.py: SPEC_VERIFIED=False — запросы к Авито заблокированы."
         )
 
 
@@ -111,14 +110,14 @@ class AvitoAuth:
 
     def __init__(
         self,
-        settings: Optional[Settings] = None,
+        settings: Settings | None = None,
         redis: Any = None,
-        client: Optional[httpx.AsyncClient] = None,
+        client: httpx.AsyncClient | None = None,
     ):
         self.settings = settings or get_settings()
         self.redis = redis
         self._client = client
-        self._local: Optional[_CachedToken] = None
+        self._local: _CachedToken | None = None
         self._lock = asyncio.Lock()
 
     async def get_token(self, *, force_refresh: bool = False) -> str:
@@ -134,7 +133,7 @@ class AvitoAuth:
                 return self._local.value
             return await self._fetch_token()
 
-    async def _read_redis(self) -> Optional[str]:
+    async def _read_redis(self) -> str | None:
         if self.redis is None:
             return None
         raw = await self.redis.get(TOKEN_REDIS_KEY)
@@ -231,9 +230,9 @@ class AvitoClient:
 
     def __init__(
         self,
-        settings: Optional[Settings] = None,
-        auth: Optional[AvitoAuth] = None,
-        client: Optional[httpx.AsyncClient] = None,
+        settings: Settings | None = None,
+        auth: AvitoAuth | None = None,
+        client: httpx.AsyncClient | None = None,
         redis: Any = None,
     ):
         self.settings = settings or get_settings()
@@ -293,9 +292,7 @@ class AvitoClient:
                     await self.auth.invalidate()
                     fresh = await self.auth.get_token(force_refresh=True)
                     headers[ep.AUTH_HEADER] = f"{ep.AUTH_SCHEME} {fresh}"
-                    response = await self._client.request(
-                        method, path, headers=headers, **kwargs
-                    )
+                    response = await self._client.request(method, path, headers=headers, **kwargs)
 
                 self._log_rate_limit(response)
                 response.raise_for_status()
@@ -404,8 +401,12 @@ class AvitoClient:
         return await self.send_image(chat_id, image_id)
 
 
-_IMAGE_TYPES = {".png": "image/png", ".webp": "image/webp",
-                ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+_IMAGE_TYPES = {
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
 
 
 def image_content_type(filename: str) -> str:
@@ -423,7 +424,7 @@ def image_content_type(filename: str) -> str:
     return _IMAGE_TYPES.get(suffix, "image/jpeg")
 
 
-def _extract_image_id(uploaded: dict) -> Optional[str]:
+def _extract_image_id(uploaded: dict) -> str | None:
     """Ответ uploadImages — словарь вида {"<image_id>": {...размеры...}}."""
     if not isinstance(uploaded, dict) or not uploaded:
         return None

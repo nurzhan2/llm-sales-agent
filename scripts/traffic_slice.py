@@ -32,7 +32,7 @@ import collections
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.agent.one_question import count_questions
 from app.pipeline import SYSTEM_MESSAGE_GREETING
@@ -67,11 +67,15 @@ def describe(rows: list, label: str) -> list[str]:
     greetings = sum(1 for r in out if (r["text"] or "") == SYSTEM_MESSAGE_GREETING)
     photos = sum(len(r["image_ids"] or []) for r in out)
 
-    lines = [f"== {label}: чатов {len({r['chat_id'] for r in rows})}, "
-             f"входящих {len(incoming)}, ответов {len(out)}"]
+    lines = [
+        f"== {label}: чатов {len({r['chat_id'] for r in rows})}, "
+        f"входящих {len(incoming)}, ответов {len(out)}"
+    ]
     if out:
-        lines.append(f"   вопросов в ответе в среднем {sum(questions) / len(questions):.2f}; "
-                     f"ушло клиенту с >1 вопросом: {multi}/{len(out)}")
+        lines.append(
+            f"   вопросов в ответе в среднем {sum(questions) / len(questions):.2f}; "
+            f"ушло клиенту с >1 вопросом: {multi}/{len(out)}"
+        )
     lines += [
         f"   рубеж одного вопроса обрезал: {trimmed}",
         f"   прочие рубежи: {dict(guards) or 'ни одного'}",
@@ -86,14 +90,15 @@ async def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--deploy", required=True,
-                        help="момент выкатки, ISO в UTC: 2026-09-18T14:21:03Z")
+    parser.add_argument(
+        "--deploy", required=True, help="момент выкатки, ISO в UTC: 2026-09-18T14:21:03Z"
+    )
     parser.add_argument("--hours", type=float, default=24.0)
     args = parser.parse_args()
 
     deploy = datetime.fromisoformat(args.deploy.replace("Z", "+00:00"))
     window = timedelta(hours=args.hours)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     after_end = min(deploy + window, now)
 
     import asyncpg
@@ -109,19 +114,23 @@ async def main() -> int:
             from messages where created_at >= $1 and created_at < $2
             order by created_at
             """,
-            deploy - window, after_end,
+            deploy - window,
+            after_end,
         )
         vacancy = await conn.fetchval(
             "select count(*) from messages m join chats c on c.chat_id = m.chat_id "
             "where c.item_id = $1 and m.direction = 'outgoing' and m.created_at >= $2",
-            VACANCY_ITEM, deploy,
+            VACANCY_ITEM,
+            deploy,
         )
     finally:
         await conn.close()
 
     covered = (after_end - deploy).total_seconds() / 3600
-    print(f"выкатка {deploy:%Y-%m-%d %H:%M} UTC; окно по {args.hours:g} ч; "
-          f"после выкатки покрыто {covered:.1f} ч")
+    print(
+        f"выкатка {deploy:%Y-%m-%d %H:%M} UTC; окно по {args.hours:g} ч; "
+        f"после выкатки покрыто {covered:.1f} ч"
+    )
     if covered < args.hours:
         print(f"⚠️ окно «после» неполное: {covered:.1f} из {args.hours:g} ч")
     for line in describe([r for r in rows if r["created_at"] < deploy], "ДО"):

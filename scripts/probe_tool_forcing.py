@@ -41,7 +41,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import app.agent.loop as loop_module
 from app.agent.loop import AVAILABILITY_TOOLS, AgentLoop
@@ -84,7 +84,7 @@ class Case:
 
     id: str
     client_text: str
-    expected_tool: Optional[str]
+    expected_tool: str | None
     why: str
     history: tuple[dict, ...] = ()
 
@@ -97,18 +97,21 @@ CASES: tuple[Case, ...] = (
         client_text="на сегодня есть окошко 4 часа , нас 6теро",
         expected_tool="check_availability",
         why="дословный текст клиента из инцидента 2026-09-01: дата, время и "
-            "вопрос про занятость в одном сообщении",
+        "вопрос про занятость в одном сообщении",
     ),
     Case(
         id="incident_second_turn",
         client_text="сегодня 16 00",
         expected_tool="check_availability",
         why="ВТОРОЙ ход того же инцидента: слова про занятость в самом "
-            "сообщении нет, признак остался в предыдущей реплике",
+        "сообщении нет, признак остался в предыдущей реплике",
         history=(
             {"role": "user", "content": "на сегодня есть окошко 4 часа , нас 6теро"},
-            {"role": "assistant", "content": "Подскажите, пожалуйста, на какое "
-                                             "число и на сколько гостей вы рассчитываете?"},
+            {
+                "role": "assistant",
+                "content": "Подскажите, пожалуйста, на какое "
+                "число и на сколько гостей вы рассчитываете?",
+            },
         ),
     ),
     Case(
@@ -116,7 +119,7 @@ CASES: tuple[Case, ...] = (
         client_text="Есть окошко сегодня?",
         expected_tool="resolve_date",
         why="относительная дата без времени — сначала разобрать «сегодня» в "
-            "число, считать это в уме модели нельзя (инциденты 31.08 и 01.09)",
+        "число, считать это в уме модели нельзя (инциденты 31.08 и 01.09)",
     ),
     Case(
         id="nearest_available",
@@ -141,18 +144,18 @@ CASES: tuple[Case, ...] = (
         client_text="а цена какая?",
         expected_tool=None,
         why="цена без зоны и без даты — принуждать НЕЧЕГО. calculate_price "
-            "требует zone_id и date; принуждение здесь заставляло модель "
-            "выдумать оба поля, получить needs_input и спросить у клиента всё "
-            "разом. Замер 2026-09-02: доля ответов больше чем с одним вопросом "
-            "18% против 2% без принуждения",
+        "требует zone_id и date; принуждение здесь заставляло модель "
+        "выдумать оба поля, получить needs_input и спросить у клиента всё "
+        "разом. Замер 2026-09-02: доля ответов больше чем с одним вопросом "
+        "18% против 2% без принуждения",
     ),
     Case(
         id="price_after_zone",
         client_text="а цена какая?",
         expected_tool="calculate_price",
         why="тот же вопрос, но зона уже названа ходом раньше — вызов снова "
-            "осмыслен. Именно этот случай и делает сужение безопасным: "
-            "разговор почти всегда начинается с зоны",
+        "осмыслен. Именно этот случай и делает сужение безопасным: "
+        "разговор почти всегда начинается с зоны",
         history=(
             {"role": "user", "content": "Здравствуйте, интересует баня"},
             {"role": "assistant", "content": "Здравствуйте! На какую дату планируете?"},
@@ -163,7 +166,7 @@ CASES: tuple[Case, ...] = (
         client_text="завтра перезвоню",
         expected_tool=None,
         why="требование заказчика дословно: дата есть, вопроса про запись нет "
-            "— календарь дёргать не за что",
+        "— календарь дёргать не за что",
     ),
 )
 
@@ -175,14 +178,14 @@ class Attempt:
     # Что мы ПОПРОСИЛИ (tool_choice первого витка) и что модель РЕАЛЬНО
     # позвала первым. Это разные вещи, и различать их обязательно: провайдер
     # волен исполнить просьбу как «позови хоть что-нибудь».
-    asked_tool: Optional[str] = None
-    first_tool: Optional[str] = None
+    asked_tool: str | None = None
+    first_tool: str | None = None
     tools: list[str] = field(default_factory=list)
     tool_args: dict = field(default_factory=dict)
     text: str = ""
-    guard_rail: Optional[str] = None
+    guard_rail: str | None = None
     escalated: bool = False
-    error: Optional[str] = None
+    error: str | None = None
     latency_ms: float = 0.0
 
 
@@ -200,7 +203,7 @@ class RecordingProvider(LLMProvider):
         # LLMProvider объявляет `name` полем класса, не свойством, — берём
         # имя внутреннего провайдера, чтобы логи хода не врали про DeepSeek.
         self.name = inner.name
-        self.tool_choices: list[Optional[dict]] = []
+        self.tool_choices: list[dict | None] = []
 
     def estimate_cost(self, *args, **kwargs):
         return self.inner.estimate_cost(*args, **kwargs)
@@ -241,12 +244,11 @@ async def run_attempt(agent: AgentLoop, kb: Any, case: Case) -> Attempt:
 
     started = time.monotonic()
     try:
-        result = await agent.run_turn(
-            f"probe-{case.id}", list(case.history), case.client_text
-        )
+        result = await agent.run_turn(f"probe-{case.id}", list(case.history), case.client_text)
     except Exception as exc:  # noqa: BLE001
-        return Attempt(error=f"{type(exc).__name__}: {exc}",
-                       latency_ms=(time.monotonic() - started) * 1000)
+        return Attempt(
+            error=f"{type(exc).__name__}: {exc}", latency_ms=(time.monotonic() - started) * 1000
+        )
 
     args_by_tool = {}
     for name, args in executor.seen:
@@ -266,8 +268,7 @@ async def run_attempt(agent: AgentLoop, kb: Any, case: Case) -> Attempt:
     )
 
 
-async def probe(repeats: int, only: Optional[str], provider_name: str,
-                control: bool = True) -> dict:
+async def probe(repeats: int, only: str | None, provider_name: str, control: bool = True) -> dict:
     # Ключ — из тех же настроек, что и у прода (они читают .env), а не
     # только из окружения: иначе замер «живой модели» молча превращался бы в
     # отказ на машине, где .env лежит рядом, но в оболочку не экспортирован.
@@ -276,11 +277,13 @@ async def probe(repeats: int, only: Optional[str], provider_name: str,
     settings = get_settings()
 
     if provider_name == "deepseek":
-        api_key = (settings.deepseek_api_key.get_secret_value()
-                   or os.environ.get("DEEPSEEK_API_KEY", ""))
+        api_key = settings.deepseek_api_key.get_secret_value() or os.environ.get(
+            "DEEPSEEK_API_KEY", ""
+        )
     else:
-        api_key = (settings.anthropic_api_key.get_secret_value()
-                   or os.environ.get("ANTHROPIC_API_KEY", ""))
+        api_key = settings.anthropic_api_key.get_secret_value() or os.environ.get(
+            "ANTHROPIC_API_KEY", ""
+        )
     if not api_key:
         raise SystemExit(
             f"нет ключа для провайдера {provider_name} — замер живой, "
@@ -292,7 +295,8 @@ async def probe(repeats: int, only: Optional[str], provider_name: str,
     dialog_model, classifier_model = default_models_for(provider_name)
     if provider_name == "deepseek":
         client: Any = DeepSeekProvider(
-            api_key=api_key, base_url=DEEPSEEK_BASE_URL,
+            api_key=api_key,
+            base_url=DEEPSEEK_BASE_URL,
             # Как в проде: thinking выключен. Включённый менял бы и задержку,
             # и стоимость, и, возможно, саму охоту звать инструменты.
             enable_thinking=settings.deepseek_enable_thinking,
@@ -304,22 +308,31 @@ async def probe(repeats: int, only: Optional[str], provider_name: str,
 
         client = AnthropicProvider(client=AsyncAnthropic(api_key=api_key))
 
-    agent = AgentLoop(RecordingProvider(client), kb, dialog_model=dialog_model,
-                      classifier_model=classifier_model)
+    agent = AgentLoop(
+        RecordingProvider(client), kb, dialog_model=dialog_model, classifier_model=classifier_model
+    )
 
     cases = [c for c in CASES if only is None or c.id == only]
     if not cases:
-        raise SystemExit(f"нет случая с id {only!r}; есть: "
-                         + ", ".join(c.id for c in CASES))
+        raise SystemExit(f"нет случая с id {only!r}; есть: " + ", ".join(c.id for c in CASES))
 
-    report: dict = {"provider": provider_name, "model": dialog_model,
-                    "repeats": repeats, "cases": []}
+    report: dict = {
+        "provider": provider_name,
+        "model": dialog_model,
+        "repeats": repeats,
+        "cases": [],
+    }
 
     original = loop_module.forced_tool_for
     for case in cases:
-        entry = {"id": case.id, "client_text": case.client_text,
-                 "expected_tool": case.expected_tool, "why": case.why,
-                 "forced": [], "control": []}
+        entry = {
+            "id": case.id,
+            "client_text": case.client_text,
+            "expected_tool": case.expected_tool,
+            "why": case.why,
+            "forced": [],
+            "control": [],
+        }
 
         # Плечо «как в проде сейчас».
         for _ in range(repeats):
@@ -344,7 +357,7 @@ async def probe(repeats: int, only: Optional[str], provider_name: str,
     return report
 
 
-def _hits(attempts: list[dict], expected: Optional[str]) -> int:
+def _hits(attempts: list[dict], expected: str | None) -> int:
     """Сколько попыток закончились ПРАВИЛЬНЫМ вызовом.
 
     Для случая «принуждать нечего» правильный исход обратный: не полезть в
@@ -361,8 +374,9 @@ def _obeyed_name(attempts: list[dict]) -> int:
     Отдельно от `_hits`, потому что «позвала хоть что-то» и «послушалась
     имени» — разные утверждения, и провайдер может исполнять только первое.
     """
-    return sum(1 for a in attempts
-               if a.get("asked_tool") and a.get("first_tool") == a["asked_tool"])
+    return sum(
+        1 for a in attempts if a.get("asked_tool") and a.get("first_tool") == a["asked_tool"]
+    )
 
 
 def _called_anything(attempts: list[dict]) -> int:
@@ -401,8 +415,8 @@ def render(report: dict) -> str:
         f"Провайдер: **{report['provider']}**, модель **{report['model']}**, "
         f"по **{n}** повторов на случай в каждом плече.",
         "",
-        "«Принуждение» — прод после правки: `tool_choice {\"type\": \"tool\", "
-        "\"name\": ...}` на первом витке. «Контроль» — тот же ход с заглушённым "
+        '«Принуждение» — прод после правки: `tool_choice {"type": "tool", '
+        '"name": ...}` на первом витке. «Контроль» — тот же ход с заглушённым '
         "`forced_tool_for`, то есть прод до неё. Одно плечо без другого ничего "
         "не доказывает: у DeepSeek вызов инструмента недетерминирован.",
         "",
@@ -418,8 +432,7 @@ def render(report: dict) -> str:
         "защита, а способ дать последнему рубежу что пропускать; защита — "
         "сам рубеж.",
         "",
-        "| случай | просим | позвал хоть что-то | позвал именно его | "
-        "без принуждения (контроль) |",
+        "| случай | просим | позвал хоть что-то | позвал именно его | без принуждения (контроль) |",
         "|---|---|---|---|---|",
     ]
     for case in report["cases"]:
@@ -431,10 +444,8 @@ def render(report: dict) -> str:
         lines.append(
             f"| `{case['id']}` | {expected} | "
             f"{_called_anything(case['forced'])}/{n} | "
-            + (f"{_obeyed_name(case['forced'])}/{n} | "
-               if case["expected_tool"] else "— | ")
-            + (f"{_called_anything(case['control'])}/{n} |"
-               if case["control"] else "— |")
+            + (f"{_obeyed_name(case['forced'])}/{n} | " if case["expected_tool"] else "— | ")
+            + (f"{_called_anything(case['control'])}/{n} |" if case["control"] else "— |")
         )
 
     forced_all = [a for case in report["cases"] for a in case["forced"]]
@@ -500,22 +511,27 @@ async def main() -> int:
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repeats", type=int, default=5,
-                        help="повторов на случай в каждом плече (по умолчанию 5)")
-    parser.add_argument("--case", help="прогнать только один случай по id")
-    parser.add_argument("--provider", choices=["deepseek", "anthropic"],
-                        default="deepseek")
     parser.add_argument(
-        "--out", type=Path,
-        help="куда положить отчёт (без расширения). Нужен, когда случаи "
-             "гоняются по одному и результаты потом сшиваются: живой прогон "
-             "длинный, и терять уже оплаченные ответы из-за обрыва обидно",
+        "--repeats", type=int, default=5, help="повторов на случай в каждом плече (по умолчанию 5)"
     )
-    parser.add_argument("--merge", nargs="+", type=Path,
-                        help="сшить готовые json-куски в один отчёт и выйти")
-    parser.add_argument("--no-control", action="store_true",
-                        help="без контрольного плеча — быстрее и вдвое дешевле, "
-                             "но результат сам по себе ничего не доказывает")
+    parser.add_argument("--case", help="прогнать только один случай по id")
+    parser.add_argument("--provider", choices=["deepseek", "anthropic"], default="deepseek")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        help="куда положить отчёт (без расширения). Нужен, когда случаи "
+        "гоняются по одному и результаты потом сшиваются: живой прогон "
+        "длинный, и терять уже оплаченные ответы из-за обрыва обидно",
+    )
+    parser.add_argument(
+        "--merge", nargs="+", type=Path, help="сшить готовые json-куски в один отчёт и выйти"
+    )
+    parser.add_argument(
+        "--no-control",
+        action="store_true",
+        help="без контрольного плеча — быстрее и вдвое дешевле, "
+        "но результат сам по себе ничего не доказывает",
+    )
     args = parser.parse_args()
 
     if args.merge:
@@ -529,36 +545,40 @@ async def main() -> int:
             key=lambda c: order.get(c["id"], len(order)),
         )
     else:
-        report = await probe(args.repeats, args.case, args.provider,
-                             control=not args.no_control)
+        report = await probe(args.repeats, args.case, args.provider, control=not args.no_control)
 
     json_path = args.out.with_suffix(".json") if args.out else REPORT_JSON
     md_path = args.out.with_suffix(".md") if args.out else REPORT_MD
     json_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2),
-                         encoding="utf-8")
+    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     md_path.write_text(render(report), encoding="utf-8")
 
     n = report["repeats"]
-    print(f"\nПровайдер {report['provider']}, модель {report['model']}, "
-          f"{n} повторов на случай\n")
+    print(f"\nПровайдер {report['provider']}, модель {report['model']}, {n} повторов на случай\n")
     for case in report["cases"]:
-        control = (f"контроль {_called_anything(case['control'])}/{n}"
-                   if case["control"] else "контроль не запускался")
+        control = (
+            f"контроль {_called_anything(case['control'])}/{n}"
+            if case["control"]
+            else "контроль не запускался"
+        )
         if case["expected_tool"] is None:
             # Здесь успех — НЕ позвать. Печатать «позвал 0/5» как достижение
             # рядом с остальными строками значило бы читать таблицу задом
             # наперёд через раз.
-            print(f"{case['id']:<24} принуждать нечего        "
-                  f"полез в инструменты {_called_anything(case['forced'])}/{n}   "
-                  f"{control}")
+            print(
+                f"{case['id']:<24} принуждать нечего        "
+                f"полез в инструменты {_called_anything(case['forced'])}/{n}   "
+                f"{control}"
+            )
             continue
-        print(f"{case['id']:<24} просим {case['expected_tool']:<20} "
-              f"позвал {_called_anything(case['forced'])}/{n}   "
-              f"именно его {_obeyed_name(case['forced'])}/{n}   {control}")
+        print(
+            f"{case['id']:<24} просим {case['expected_tool']:<20} "
+            f"позвал {_called_anything(case['forced'])}/{n}   "
+            f"именно его {_obeyed_name(case['forced'])}/{n}   {control}"
+        )
     forced_all = [a for case in report["cases"] for a in case["forced"]]
     control_all = [a for case in report["cases"] for a in case["control"]]
-    print(f"\nанкетность (больше одного вопроса в ответе):")
+    print("\nанкетность (больше одного вопроса в ответе):")
     print(f"  с принуждением  {_rate(_many_questions(forced_all), len(forced_all))}")
     print(f"  без принуждения {_rate(_many_questions(control_all), len(control_all))}")
     broken = sum(1 for a in forced_all + control_all if a.get("error"))

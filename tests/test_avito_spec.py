@@ -50,6 +50,7 @@ def _mock_token() -> None:
 # Обрезка текста до лимита Авито
 # --------------------------------------------------------------------------
 
+
 def test_short_text_is_untouched():
     assert truncate_for_avito("Здравствуйте!") == "Здравствуйте!"
 
@@ -113,6 +114,7 @@ async def test_send_message_body_shape_matches_spec(settings):
 # Фото: два шага
 # --------------------------------------------------------------------------
 
+
 @respx.mock
 async def test_upload_image_uses_bracketed_field_name(settings):
     """Поле называется ровно uploadfile[] — без скобок файл не примут."""
@@ -160,6 +162,7 @@ async def test_upload_and_send_image_is_two_steps(settings):
 # Секрет в пути вебхука (вместо неопубликованной подписи)
 # --------------------------------------------------------------------------
 
+
 def _app(settings, monkeypatch) -> TestClient:
     monkeypatch.setattr(webhooks_module, "get_settings", lambda: settings)
     application = FastAPI()
@@ -206,6 +209,7 @@ def test_webhook_secret_must_be_long_enough():
 # --------------------------------------------------------------------------
 # Гигиена логов и разбор payload
 # --------------------------------------------------------------------------
+
 
 def test_redact_scrubs_query_string_secrets():
     url = (

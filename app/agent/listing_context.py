@@ -17,15 +17,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Protocol
 
 from app.kb.loader import KnowledgeBase
 
 
 @dataclass(frozen=True)
 class ItemZoneRow:
-    zone_id: Optional[str] = None
-    category: Optional[str] = None
+    zone_id: str | None = None
+    category: str | None = None
     # Объявление подарочного сертификата (2026-10: «Сертификат Баня на
     # юбилей», «…на День рождения»). Условия сертификатов в каталоге не
     # заведены — агент их не продаёт, а передаёт менеджеру.
@@ -33,21 +33,21 @@ class ItemZoneRow:
 
 
 class ItemZoneLookup(Protocol):
-    async def get(self, item_id: str) -> Optional[ItemZoneRow]: ...
+    async def get(self, item_id: str) -> ItemZoneRow | None: ...
 
 
 @dataclass(frozen=True)
 class ListingResolution:
     status: str  # "resolved" | "ambiguous" | "unknown"
-    zone_id: Optional[str] = None
+    zone_id: str | None = None
     candidate_zone_ids: tuple[str, ...] = ()
-    category: Optional[str] = None
+    category: str | None = None
     certificate: bool = False
 
 
 async def resolve_listing(
-    item_id: Optional[str],
-    lookup: Optional[ItemZoneLookup],
+    item_id: str | None,
+    lookup: ItemZoneLookup | None,
     kb: KnowledgeBase,
 ) -> ListingResolution:
     if item_id is None or lookup is None:
@@ -64,8 +64,7 @@ async def resolve_listing(
 
     if row.category:
         candidates = tuple(
-            z.id for z in kb.catalog.zones
-            if z.category.value == row.category and z.on_sale
+            z.id for z in kb.catalog.zones if z.category.value == row.category and z.on_sale
         )
         if len(candidates) == 1:
             return ListingResolution(status="resolved", zone_id=candidates[0])
@@ -96,7 +95,7 @@ def _price_signature(zone) -> tuple:
     )
 
 
-def build_listing_hint(resolution: ListingResolution, kb: KnowledgeBase) -> Optional[str]:
+def build_listing_hint(resolution: ListingResolution, kb: KnowledgeBase) -> str | None:
     """Служебная подсказка для модели — НЕ текст клиенту. Вызывающий код
     (AgentLoop.run_turn) добавляет её к содержимому хода, а не к системному
     промту: контекст меняется от сообщения к сообщению, а кешируемый блок
@@ -129,7 +128,8 @@ def build_listing_hint(resolution: ListingResolution, kb: KnowledgeBase) -> Opti
             " Цены у всех этих зон ОДИНАКОВЫЕ: если клиент спрашивает стоимость, "
             "сразу посчитай её (calculate_price по любой из них), а уточняющий "
             "вопрос задай тем же сообщением — не заставляй клиента сначала выбирать."
-            if same_price and len(zones) > 1 else ""
+            if same_price and len(zones) > 1
+            else ""
         )
         if not same_price and len(zones) > 1:
             # Жалоба 29.10: клиент с объявления «от 1500» получил 2500 - бот
@@ -147,7 +147,7 @@ def build_listing_hint(resolution: ListingResolution, kb: KnowledgeBase) -> Opti
             f"вариантами — не описывай весь каталог и не гадай.{price_note}]"
         )
 
-    return None   # unknown — агенту нечего подсказать, работает по тексту клиента
+    return None  # unknown — агенту нечего подсказать, работает по тексту клиента
 
 
 def no_listing_hint() -> str:

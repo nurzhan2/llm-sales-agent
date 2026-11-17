@@ -90,7 +90,11 @@ def count_questions(text: str) -> int:
     «Русский стиль», «Гараж» или «Рыцарскую»?») — ровно один вопрос, каким
     бы длинным оно ни было.
     """
-    return sum(1 for _, sentence in split_sentences(normalize_question_marks(text)) if is_question(sentence))
+    return sum(
+        1
+        for _, sentence in split_sentences(normalize_question_marks(text))
+        if is_question(sentence)
+    )
 
 
 def trim_to_one_question(text: str) -> str:

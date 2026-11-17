@@ -24,7 +24,9 @@ def _slots(**kw):
 
 
 def test_without_date_we_ask_for_date_and_guests():
-    text, added = ensure_next_step("Русская баня - 2500 ₽/час в будни.", "сколько стоит баня", _slots(), False)
+    text, added = ensure_next_step(
+        "Русская баня - 2500 ₽/час в будни.", "сколько стоит баня", _slots(), False
+    )
     assert added
     assert text.endswith(ASK_DATE)
 
@@ -56,10 +58,13 @@ def test_a_client_who_says_thanks_is_not_pushed():
     assert not added
 
 
-@pytest.mark.parametrize("reply", [
-    "Для брони напишите, пожалуйста, имя и телефон.",
-    "Секунду, уточню свободное время и напишу.",
-])
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Для брони напишите, пожалуйста, имя и телефон.",
+        "Секунду, уточню свободное время и напишу.",
+    ],
+)
 def test_a_reply_that_already_leads_somewhere_gets_no_second_tail(reply):
     assert ensure_next_step(reply, "есть время?", _slots(), True) == (reply, False)
 

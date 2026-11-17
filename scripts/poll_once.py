@@ -41,8 +41,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from app.channels.avito import AvitoClient
 from app.channels.avito_payloads import extract_item_id_from_chat
@@ -63,6 +63,7 @@ PAGE_RETRIES = 3
 # --------------------------------------------------------------------------
 # Разбор ответов — терпимо, по образцу app/channels/avito_payloads.py
 # --------------------------------------------------------------------------
+
 
 def _chats_of(page: Any) -> list[dict]:
     """Список чатов из страницы ответа.
@@ -100,7 +101,7 @@ def _last_message(chat: dict) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _created_of(node: dict) -> Optional[int]:
+def _created_of(node: dict) -> int | None:
     """created в API Авито — unix-секунды числом.
 
     Именно поэтому курсор в chat_cursor будет BigInteger, а не timestamptz:
@@ -141,7 +142,7 @@ def _chat_type(chat: dict) -> str:
     return "u2u/a2u"
 
 
-def _author_of(node: dict) -> Optional[str]:
+def _author_of(node: dict) -> str | None:
     for key in ("author_id", "authorId", "user_id"):
         value = node.get(key)
         if isinstance(value, (str, int)) and str(value):
@@ -149,12 +150,12 @@ def _author_of(node: dict) -> Optional[str]:
     return None
 
 
-def _message_id_of(node: dict) -> Optional[str]:
+def _message_id_of(node: dict) -> str | None:
     value = node.get("id")
     return str(value) if isinstance(value, (str, int)) and str(value) else None
 
 
-def _age(created: Optional[int], now: int) -> str:
+def _age(created: int | None, now: int) -> str:
     if created is None:
         return "?"
     delta = now - created
@@ -168,6 +169,7 @@ def _age(created: Optional[int], now: int) -> str:
 # --------------------------------------------------------------------------
 # Режим --dry: что сделал бы поллер на холодном старте
 # --------------------------------------------------------------------------
+
 
 async def _fetch_all_chats(
     client: AvitoClient, page_size: int, max_chats: int
@@ -197,16 +199,18 @@ async def _fetch_all_chats(
                 break
             except Exception as exc:
                 requests += 1
-                print(f"  offset={offset}: попытка {attempt}/{PAGE_RETRIES} — "
-                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
+                print(
+                    f"  offset={offset}: попытка {attempt}/{PAGE_RETRIES} — "
+                    f"{type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
                 if attempt == PAGE_RETRIES:
                     complete = False
                 else:
                     await asyncio.sleep(2 * attempt)
 
         if page is None:
-            print(f"  offset={offset}: страница не получена, обход оборван",
-                  file=sys.stderr)
+            print(f"  offset={offset}: страница не получена, обход оборван", file=sys.stderr)
             break
 
         requests += 1
@@ -226,7 +230,9 @@ async def _fetch_all_chats(
     return chats[:max_chats], requests, complete
 
 
-async def _decision(chat: dict, our_id: str, settings: Any, scope_resolver: Any = None) -> tuple[str, str]:
+async def _decision(
+    chat: dict, our_id: str, settings: Any, scope_resolver: Any = None
+) -> tuple[str, str]:
     """(решение, причина) — что поллер СДЕЛАЕТ С ЧТЕНИЕМ этого чата.
 
     ЭТО БОЛЬШЕ НЕ ПРЕДСКАЗАНИЕ «ОТВЕТИТ ЛИ АГЕНТ». До инцидента 2026-08-28
@@ -289,23 +295,21 @@ def _build_scope_resolver(settings: Any):
 async def run_dry(client: AvitoClient, args: argparse.Namespace) -> int:
     settings = get_settings()
     our_id = settings.avito_user_id
-    now = int(datetime.now(timezone.utc).timestamp())
+    now = int(datetime.now(UTC).timestamp())
     scope_resolver = None if args.no_item_scope else _build_scope_resolver(settings)
 
-    chats, requests, complete = await _fetch_all_chats(
-        client, args.page_size, args.max_chats
-    )
+    chats, requests, complete = await _fetch_all_chats(client, args.page_size, args.max_chats)
 
     print(f"AVITO_USER_ID: {our_id}")
-    print(f"Чатов получено: {len(chats)} за {requests} запрос(ов) "
-          f"по {args.page_size} на страницу")
+    print(f"Чатов получено: {len(chats)} за {requests} запрос(ов) по {args.page_size} на страницу")
     if not complete:
         print("ВНИМАНИЕ: обход ОБОРВАН на ошибке — числа ниже неполные.")
     elif len(chats) >= args.max_chats:
-        print(f"ВНИМАНИЕ: упёрлись в --max-chats={args.max_chats}, "
-              "в аккаунте чатов больше.")
-    print("Отвечать ли на холодном старте решает AGENT_MIN_INBOUND_TS в "
-          f"конвейере (сейчас = {settings.agent_min_inbound_ts}), не этот скрипт.")
+        print(f"ВНИМАНИЕ: упёрлись в --max-chats={args.max_chats}, в аккаунте чатов больше.")
+    print(
+        "Отвечать ли на холодном старте решает AGENT_MIN_INBOUND_TS в "
+        f"конвейере (сейчас = {settings.agent_min_inbound_ts}), не этот скрипт."
+    )
     print()
 
     # Отсортирован ли список по убыванию времени последнего сообщения. От
@@ -313,28 +317,37 @@ async def run_dry(client: AvitoClient, args: argparse.Namespace) -> int:
     # сообщений, — иначе каждый проход тянет весь аккаунт целиком.
     created_seq = [_created_of(_last_message(c)) for c in chats]
     known = [c for c in created_seq if c is not None]
-    inversions = [(i, known[i], known[i + 1])
-                  for i in range(len(known) - 1) if known[i] < known[i + 1]]
+    inversions = [
+        (i, known[i], known[i + 1]) for i in range(len(known) - 1) if known[i] < known[i + 1]
+    ]
     worst = max((b - a for _, a, b in inversions), default=0)
 
-    print(f"Сортировка по убыванию last_message.created: "
-          f"{'СТРОГАЯ' if not inversions else 'НАРУШЕНА'} "
-          f"(проверено {len(known)} из {len(chats)})")
+    print(
+        f"Сортировка по убыванию last_message.created: "
+        f"{'СТРОГАЯ' if not inversions else 'НАРУШЕНА'} "
+        f"(проверено {len(known)} из {len(chats)})"
+    )
     if inversions:
         # Величина нарушения важнее самого факта: сортировка «почти по
         # убыванию» с разбросом в минуты позволяет читать только первые
         # страницы с запасом, а разброс в недели — нет. От этого зависит,
         # можно ли вообще обойтись пагинацией с потолком offset=1000.
-        print(f"  нарушений порядка: {len(inversions)}, "
-              f"худшее — на {worst} сек ({worst // 86400} сут)")
+        print(
+            f"  нарушений порядка: {len(inversions)}, "
+            f"худшее — на {worst} сек ({worst // 86400} сут)"
+        )
         print(f"  первые нарушения (позиция, было, стало): {inversions[:5]}")
     if known:
-        print(f"  самое свежее: {_age(max(known), now)} назад, "
-              f"самое старое: {_age(min(known), now)} назад")
+        print(
+            f"  самое свежее: {_age(max(known), now)} назад, "
+            f"самое старое: {_age(min(known), now)} назад"
+        )
     print()
 
-    header = (f"{'chat_id':<26} {'тип':<8} {'item_id (тип)':<22} "
-              f"{'возраст':<8} {'от':<8} {'решение':<11} причина / заголовок")
+    header = (
+        f"{'chat_id':<26} {'тип':<8} {'item_id (тип)':<22} "
+        f"{'возраст':<8} {'от':<8} {'решение':<11} причина / заголовок"
+    )
     print(header)
     print("-" * len(header))
 
@@ -376,25 +389,35 @@ async def run_dry(client: AvitoClient, args: argparse.Namespace) -> int:
             # входит в чёрный список и читается как разрешённое объявление.
             zero_items += 1
 
-        print(f"{chat_id:<26} {_chat_type(chat):<8} {item_cell:<22} "
-              f"{_age(created, now):<8} {direction:<8} {decision:<11} "
-              f"{reason} / {_chat_title(chat)[:40]}")
+        print(
+            f"{chat_id:<26} {_chat_type(chat):<8} {item_cell:<22} "
+            f"{_age(created, now):<8} {direction:<8} {decision:<11} "
+            f"{reason} / {_chat_title(chat)[:40]}"
+        )
 
     print()
-    print(f"ИТОГО: поллер прочитает {counts.get('ПРОЧИТАЕТ', 0)}, "
-          f"пропустит {counts.get('пропуск', 0)}")
+    print(
+        f"ИТОГО: поллер прочитает {counts.get('ПРОЧИТАЕТ', 0)}, "
+        f"пропустит {counts.get('пропуск', 0)}"
+    )
     for reason, count in sorted(reasons.items(), key=lambda kv: -kv[1]):
         print(f"  {reason}: {count}")
     if zero_items:
         print()
         if scope_resolver is not None:
-            print(f"Чатов с item_id == 0: {zero_items} — item_scope считает это "
-                  "жёстким deny (см. ZERO_ITEM_ID).")
+            print(
+                f"Чатов с item_id == 0: {zero_items} — item_scope считает это "
+                "жёстким deny (см. ZERO_ITEM_ID)."
+            )
         else:
-            print(f"ВНИМАНИЕ: чатов с item_id == 0: {zero_items}. "
-                  "extract_item_id_from_chat отдаёт для них")
-            print("строку \"0\", а не None, и БЕЗ item_scope (--no-item-scope) "
-                  "фильтр считает их обычным разрешённым объявлением.")
+            print(
+                f"ВНИМАНИЕ: чатов с item_id == 0: {zero_items}. "
+                "extract_item_id_from_chat отдаёт для них"
+            )
+            print(
+                'строку "0", а не None, и БЕЗ item_scope (--no-item-scope) '
+                "фильтр считает их обычным разрешённым объявлением."
+            )
     print()
     print("Ни одного исходящего сообщения не отправлено — это пробник.")
     return 0
@@ -403,6 +426,7 @@ async def run_dry(client: AvitoClient, args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 # Режим --check-ids: главный вопрос, ради которого пробник и написан
 # --------------------------------------------------------------------------
+
 
 async def _webhook_message_ids() -> dict[str, list[str]]:
     """chat_id -> avito_message_id входящих, сохранённых КОНВЕЙЕРОМ.
@@ -485,12 +509,9 @@ async def run_check_ids(client: AvitoClient, args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"Источник id недоступен: {type(exc).__name__}: {exc}", file=sys.stderr)
         print(file=sys.stderr)
-        print("Нужна база прода — именно там лежат сообщения, пришедшие вебхуком.",
-              file=sys.stderr)
-        print("У Postgres на Railway публичного адреса нет, поэтому снимите",
-              file=sys.stderr)
-        print("выгрузку изнутри (railway ssh) и передайте её сюда --ids-file.",
-              file=sys.stderr)
+        print("Нужна база прода — именно там лежат сообщения, пришедшие вебхуком.", file=sys.stderr)
+        print("У Postgres на Railway публичного адреса нет, поэтому снимите", file=sys.stderr)
+        print("выгрузку изнутри (railway ssh) и передайте её сюда --ids-file.", file=sys.stderr)
         return 1
 
     if not by_chat:
@@ -543,6 +564,7 @@ async def run_check_ids(client: AvitoClient, args: argparse.Namespace) -> int:
 # Режим --chat: форма сообщений одного чата, без текста
 # --------------------------------------------------------------------------
 
+
 async def run_chat(client: AvitoClient, args: argparse.Namespace) -> int:
     page = await client.get_messages(args.chat, limit=MESSAGES_LIMIT)
     messages = _messages_of(page)
@@ -573,6 +595,7 @@ async def run_chat(client: AvitoClient, args: argparse.Namespace) -> int:
 
 # --------------------------------------------------------------------------
 
+
 async def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -585,28 +608,41 @@ async def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--dry", action="store_true",
-                        help="показать, что поллер сделал бы на холодном старте (по умолчанию)")
-    parser.add_argument("--check-ids", action="store_true",
-                        help="сравнить message_id вебхука и v3 — главная проверка")
-    parser.add_argument("--chat", metavar="CHAT_ID",
-                        help="показать форму сообщений одного чата (без текста)")
-    parser.add_argument("--ids-file", metavar="PATH",
-                        help="взять вебхучные message_id из файла, а не из БД "
-                             "(у Postgres на Railway нет публичного адреса)")
+    parser.add_argument(
+        "--dry",
+        action="store_true",
+        help="показать, что поллер сделал бы на холодном старте (по умолчанию)",
+    )
+    parser.add_argument(
+        "--check-ids",
+        action="store_true",
+        help="сравнить message_id вебхука и v3 — главная проверка",
+    )
+    parser.add_argument(
+        "--chat", metavar="CHAT_ID", help="показать форму сообщений одного чата (без текста)"
+    )
+    parser.add_argument(
+        "--ids-file",
+        metavar="PATH",
+        help="взять вебхучные message_id из файла, а не из БД "
+        "(у Postgres на Railway нет публичного адреса)",
+    )
     parser.add_argument("--page-size", type=int, default=100)
     parser.add_argument("--max-chats", type=int, default=1000)
     parser.add_argument(
-        "--no-item-scope", action="store_true",
+        "--no-item-scope",
+        action="store_true",
         help="--dry: не собирать ItemScopeResolver (без БД/дозагрузки карточек) — "
-             "решение по старому чёрному списку AVITO_BLOCKED_ITEMS",
+        "решение по старому чёрному списку AVITO_BLOCKED_ITEMS",
     )
     args = parser.parse_args()
 
     settings = get_settings()
     if not settings.avito_user_id or "your_" in settings.avito_user_id:
-        print("AVITO_USER_ID не задан (в .env шаблонное значение) — "
-              "запросы к Авито невозможны.", file=sys.stderr)
+        print(
+            "AVITO_USER_ID не задан (в .env шаблонное значение) — запросы к Авито невозможны.",
+            file=sys.stderr,
+        )
         return 1
 
     client = AvitoClient(settings=settings)

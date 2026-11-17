@@ -8,11 +8,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-import pytest
-
 from app.quality.asserts import (
     MAX_REPLY_LENGTH,
     TurnUnderTest,
@@ -32,6 +27,7 @@ def rules(turn: TurnUnderTest) -> set[str]:
 # --------------------------------------------------------------------------
 # 1. Цена только через инструмент
 # --------------------------------------------------------------------------
+
 
 def test_price_without_tool_call_is_caught():
     turn = TurnUnderTest(text="Баня стоит 3500 ₽ в час.", tool_calls=[])
@@ -60,6 +56,7 @@ def test_text_without_money_needs_no_tool():
 # «любая сумма обязана равняться total»: полный прогон 2026-09-02 показал два
 # ПРАВИЛЬНЫХ ответа, которые та редакция рубила, — оба ниже.
 # --------------------------------------------------------------------------
+
 
 def test_invented_amount_is_caught():
     """Агент назвал сумму, которой движок не возвращал."""
@@ -110,6 +107,7 @@ def test_an_extra_priced_by_its_own_tool_is_not_invented_either():
 # 3. При blocked — ни одной суммы
 # --------------------------------------------------------------------------
 
+
 def test_amount_after_blocked_is_caught():
     turn = TurnUnderTest(
         text="Ориентировочно 14500 ₽, но уточню у менеджера.",
@@ -142,21 +140,21 @@ def test_bare_number_after_blocked_is_also_caught():
 # 4. Обещание брони
 # --------------------------------------------------------------------------
 
+
 def test_booking_promise_without_manager_is_caught():
     turn = TurnUnderTest(text="Отлично, забронировал на субботу!")
     assert "booking_promise" in rules(turn)
 
 
 def test_booking_with_manager_mention_passes():
-    turn = TurnUnderTest(
-        text="Придержу это время, менеджер свяжется и подтвердит."
-    )
+    turn = TurnUnderTest(text="Придержу это время, менеджер свяжется и подтвердит.")
     assert "booking_promise" not in rules(turn)
 
 
 # --------------------------------------------------------------------------
 # 5. Реквизиты
 # --------------------------------------------------------------------------
+
 
 def test_phone_number_is_caught():
     turn = TurnUnderTest(text="Переведите на 89000000000, пожалуйста.")
@@ -181,6 +179,7 @@ def test_clean_text_has_no_credential_flags():
 # --------------------------------------------------------------------------
 # 6. Производная ставка при акции
 # --------------------------------------------------------------------------
+
 
 def test_derived_hourly_rate_under_promo_is_caught():
     """6 часов за 7500 ₽ не должны превращаться в «1250 ₽ в час»."""
@@ -208,6 +207,7 @@ def test_line_breakdown_under_promo_passes():
 # 7. Скидка только после request_concession
 # --------------------------------------------------------------------------
 
+
 def test_unauthorised_discount_is_caught():
     turn = TurnUnderTest(text="Могу сделать скидку, если решите сегодня.")
     assert "unauthorised_discount" in rules(turn)
@@ -224,6 +224,7 @@ def test_authorised_discount_passes():
 # --------------------------------------------------------------------------
 # 8-9. Длина и количество вопросов
 # --------------------------------------------------------------------------
+
 
 def test_too_long_reply_is_caught():
     turn = TurnUnderTest(text="а" * (MAX_REPLY_LENGTH + 1))
@@ -250,15 +251,14 @@ def test_single_question_passes():
 # 10. Выдуманные зоны
 # --------------------------------------------------------------------------
 
+
 def test_invented_service_is_caught():
     turn = TurnUnderTest(text="У нас есть бассейн и хамам.", known_zone_ids=ZONES)
     assert "unknown_zone" in rules(turn)
 
 
 def test_real_zones_pass():
-    turn = TurnUnderTest(
-        text="Есть баня, купол и шатёр — что вам ближе?", known_zone_ids=ZONES
-    )
+    turn = TurnUnderTest(text="Есть баня, купол и шатёр — что вам ближе?", known_zone_ids=ZONES)
     assert "unknown_zone" not in rules(turn)
 
 
@@ -266,10 +266,9 @@ def test_real_zones_pass():
 # Сводка и отчёт
 # --------------------------------------------------------------------------
 
+
 def test_summarize_counts_rules():
-    violations = check_turn(
-        TurnUnderTest(text="Забронировал! Переведите на 89000000000.")
-    )
+    violations = check_turn(TurnUnderTest(text="Забронировал! Переведите на 89000000000."))
     counts = summarize(violations)
     assert counts["phone_leak"] == 1
     assert counts["booking_promise"] == 1
@@ -278,7 +277,11 @@ def test_summarize_counts_rules():
 def test_report_puts_failures_first():
     good = TurnRecord("d1", "баня", "вопрос", "ответ менеджера", "чистый ответ")
     bad = TurnRecord(
-        "d2", "купол", "вопрос", "ответ", "Забронировал!",
+        "d2",
+        "купол",
+        "вопрос",
+        "ответ",
+        "Забронировал!",
         violations=check_turn(TurnUnderTest(text="Забронировал!")),
     )
     result = RunResult(turns=[good, bad])
@@ -294,7 +297,9 @@ def test_report_marks_offline_run():
 
 def test_run_result_pass_rate():
     good = TurnRecord("d1", "z", "c", "m", "a")
-    bad = TurnRecord("d2", "z", "c", "m", "a", violations=check_turn(TurnUnderTest(text="Забронировал!")))
+    bad = TurnRecord(
+        "d2", "z", "c", "m", "a", violations=check_turn(TurnUnderTest(text="Забронировал!"))
+    )
     data = RunResult(turns=[good, bad]).as_json()
     assert data["total_turns"] == 2
     assert data["failed_turns"] == 1
@@ -304,6 +309,7 @@ def test_run_result_pass_rate():
 # --------------------------------------------------------------------------
 # Сравнение с эталоном
 # --------------------------------------------------------------------------
+
 
 def test_regression_in_pass_rate_is_reported():
     problems = compare_to_baseline(
@@ -337,6 +343,7 @@ def test_judge_score_drop_is_reported():
 # --------------------------------------------------------------------------
 # Судья
 # --------------------------------------------------------------------------
+
 
 class _FailingClient:
     class messages:

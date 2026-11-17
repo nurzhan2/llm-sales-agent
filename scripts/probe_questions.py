@@ -67,15 +67,15 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
+from app.agent.listing_context import ItemZoneRow
 from app.agent.loop import PRICE_LIKE_WITHOUT_TOOL_CALL, AgentLoop
 from app.agent.one_question import count_questions
 from app.agent.providers.deepseek_provider import BASE_URL as DEEPSEEK_BASE_URL
 from app.agent.providers.deepseek_provider import DeepSeekProvider
 from app.agent.providers.factory import default_models_for
 from app.agent.slots import asked_slots, extract_slots
-from app.agent.listing_context import ItemZoneRow
 from app.agent.tools import ToolExecutor
 from app.booking.base import Availability, AvailabilityStatus, BookingResult
 from app.kb.loader import load_catalog
@@ -105,9 +105,9 @@ class Case:
     # нет, и честный ответ «какая зона вас интересует?» считался провалом —
     # а назвать ставку там нечем: у бань и куполов она разная по будням и
     # выходным, у разных зон — разная вообще.
-    expect_money: Optional[bool] = None
+    expect_money: bool | None = None
     # Зона объявления, с которого пришёл клиент (как `item_id` в проде).
-    listing_zone_id: Optional[str] = None
+    listing_zone_id: str | None = None
 
 
 # Случаи — из письма заказчика и из живых переписок. Каждый отвечает на
@@ -117,14 +117,14 @@ CASES: tuple[Case, ...] = (
         id="complaint_verbatim",
         client_text="хочу арендовать 20 сентября, есть свободное время и сколько стоит?",
         why="ДОСЛОВНО из жалобы заказчика 2026-09-18, но БЕЗ объявления — "
-            "как из профиля продавца. Зона неизвестна, значит ставку назвать "
-            "нечем; верный ответ — один вопрос про зону, не про дату",
+        "как из профиля продавца. Зона неизвестна, значит ставку назвать "
+        "нечем; верный ответ — один вопрос про зону, не про дату",
     ),
     Case(
         id="complaint_from_grill_listing",
         client_text="хочу арендовать 20 сентября, есть свободное время и сколько стоит?",
         why="Та же реплика с карточки гриль-домика — именно так она пришла "
-            "в проде. Зона и дата известны: обязана прозвучать ставка",
+        "в проде. Зона и дата известны: обязана прозвучать ставка",
         expect_money=True,
         listing_zone_id="grill_house",
     ),
@@ -132,7 +132,7 @@ CASES: tuple[Case, ...] = (
         id="date_and_guests_three_turns_back",
         client_text="а цена какая?",
         why="Главная форма жалобы: дата и число гостей названы тремя "
-            "репликами раньше. Ни то, ни другое спрашивать заново нельзя",
+        "репликами раньше. Ни то, ни другое спрашивать заново нельзя",
         history=(
             {"role": "user", "content": "Здравствуйте, интересует гриль-домик на 20 сентября"},
             {"role": "assistant", "content": "Здравствуйте! Меня зовут Иришка. Сколько вас будет?"},
@@ -145,14 +145,14 @@ CASES: tuple[Case, ...] = (
         id="price_of_a_bath_no_details",
         client_text="сколько стоит баня?",
         why="Зона названа, дня нет. По правилу заказчика цифра обязательна, "
-            "когда известны зона И день; здесь дня нет, а будни и выходные "
-            "у бань стоят по-разному. Смотрим, что агент делает без него",
+        "когда известны зона И день; здесь дня нет, а будни и выходные "
+        "у бань стоят по-разному. Смотрим, что агент делает без него",
     ),
     Case(
         id="only_duration_missing",
         client_text="а сколько это будет стоить?",
         why="Не хватает ровно длительности. Требование дословно: «назови "
-            "цену за час и минимум, а не молчи про деньги»",
+        "цену за час и минимум, а не молчи про деньги»",
         history=(
             {"role": "user", "content": "интересует баня на 20 сентября, нас шестеро"},
             {"role": "assistant", "content": "Здравствуйте! У нас три бани на выбор."},
@@ -163,15 +163,15 @@ CASES: tuple[Case, ...] = (
         id="grill_house_on_a_weekend",
         client_text="гриль-домик в субботу сколько будет стоить?",
         why="Расчёт возвращает invalid (пакет «весь день» только пн-чт). До "
-            "правки клиент не получал НИ ОДНОЙ цифры — только объяснение "
-            "про пакет",
+        "правки клиент не получал НИ ОДНОЙ цифры — только объяснение "
+        "про пакет",
         expect_money=True,
     ),
     Case(
         id="client_ignored_the_question",
         client_text="а у вас есть где детям поиграть?",
         why="Клиент не ответил на вопрос про гостей и спросил своё. "
-            "Повторять тот же вопрос нельзя — надо ответить на его",
+        "Повторять тот же вопрос нельзя — надо ответить на его",
         history=(
             {"role": "user", "content": "хочу баню на завтра"},
             {"role": "assistant", "content": "Здравствуйте! Сколько вас будет?"},
@@ -181,8 +181,8 @@ CASES: tuple[Case, ...] = (
         id="everything_is_known",
         client_text="ну что, подойдёт?",
         why="Клиент назвал всё: зону, дату, время, длительность, гостей. "
-            "Любой уточняющий вопрос здесь — переспрос известного. Цифра "
-            "обязательна: зона и день известны",
+        "Любой уточняющий вопрос здесь — переспрос известного. Цифра "
+        "обязательна: зона и день известны",
         history=(
             {"role": "user", "content": "баня Русский стиль, 20 сентября, с 13 до 17, нас шестеро"},
             {"role": "assistant", "content": "Здравствуйте! Секунду, посмотрю."},
@@ -193,8 +193,8 @@ CASES: tuple[Case, ...] = (
         id="bare_price_question",
         client_text="а цена какая?",
         why="Ни зоны, ни даты — тот самый случай, который в замере "
-            "2026-09-02 дал 18% анкетных ответов при принуждении "
-            "инструмента. Один вопрос, не три",
+        "2026-09-02 дал 18% анкетных ответов при принуждении "
+        "инструмента. Один вопрос, не три",
     ),
 )
 
@@ -214,13 +214,13 @@ class Attempt:
     repeated_own: list[str] = field(default_factory=list)
     names_money: bool = False
     tools: list[str] = field(default_factory=list)
-    guard_rail: Optional[str] = None
+    guard_rail: str | None = None
     # Что модель написала, когда рубеж подменил ответ. Без этого поля
     # срабатывание рубежа в отчёте не разобрать: видна только подстановка.
-    withheld_text: Optional[str] = None
-    question_guard: Optional[str] = None
+    withheld_text: str | None = None
+    question_guard: str | None = None
     escalated: bool = False
-    error: Optional[str] = None
+    error: str | None = None
     latency_ms: float = 0.0
 
 
@@ -264,8 +264,10 @@ async def run_attempt(agent: AgentLoop, kb: Any, case: Case) -> Attempt:
 
     listing: dict[str, Any] = {}
     if case.listing_zone_id:
-        listing = {"item_id": f"probe-item-{case.listing_zone_id}",
-                   "item_lookup": _ListingStub(case.listing_zone_id)}
+        listing = {
+            "item_id": f"probe-item-{case.listing_zone_id}",
+            "item_lookup": _ListingStub(case.listing_zone_id),
+        }
 
     started = time.monotonic()
     try:
@@ -273,8 +275,9 @@ async def run_attempt(agent: AgentLoop, kb: Any, case: Case) -> Attempt:
             f"probe-{case.id}", list(case.history), case.client_text, **listing
         )
     except Exception as exc:  # noqa: BLE001
-        return Attempt(error=f"{type(exc).__name__}: {exc}",
-                       latency_ms=(time.monotonic() - started) * 1000)
+        return Attempt(
+            error=f"{type(exc).__name__}: {exc}", latency_ms=(time.monotonic() - started) * 1000
+        )
 
     text = result.text or ""
     # Текст ДО рубежа одного вопроса. Его сохраняет сам ход — брать его
@@ -299,13 +302,15 @@ async def run_attempt(agent: AgentLoop, kb: Any, case: Case) -> Attempt:
         questions_after=count_questions(text),
         asked_in_reply=sorted(asked_now),
         reasked_known=sorted(
-            slot for slot in asked_now & set(known.known())
+            slot
+            for slot in asked_now & set(known.known())
             # «Какую баню — Русский стиль, Гараж или Рыцарскую?» после «хочу
             # баню» — выбор внутри категории, а не переспрос: бань три, и
             # промт прямо требует этот вопрос. Первый прогон считал его
             # переспросом зоны.
-            if not (slot == "zone" and not known.zone_from_listing
-                    and CATEGORY_WORDS.match(known.zone))
+            if not (
+                slot == "zone" and not known.zone_from_listing and CATEGORY_WORDS.match(known.zone)
+            )
         ),
         repeated_own=sorted((asked_now & previously_asked) - set(known.known())),
         names_money=bool(PRICE_LIKE_WITHOUT_TOOL_CALL.search(text)),
@@ -318,17 +323,19 @@ async def run_attempt(agent: AgentLoop, kb: Any, case: Case) -> Attempt:
     )
 
 
-async def probe(repeats: int, only: Optional[str], provider_name: str) -> dict:
+async def probe(repeats: int, only: str | None, provider_name: str) -> dict:
     from app.config import get_settings
 
     settings = get_settings()
 
     if provider_name == "deepseek":
-        api_key = (settings.deepseek_api_key.get_secret_value()
-                   or os.environ.get("DEEPSEEK_API_KEY", ""))
+        api_key = settings.deepseek_api_key.get_secret_value() or os.environ.get(
+            "DEEPSEEK_API_KEY", ""
+        )
     else:
-        api_key = (settings.anthropic_api_key.get_secret_value()
-                   or os.environ.get("ANTHROPIC_API_KEY", ""))
+        api_key = settings.anthropic_api_key.get_secret_value() or os.environ.get(
+            "ANTHROPIC_API_KEY", ""
+        )
     if not api_key:
         raise SystemExit(
             f"нет ключа для провайдера {provider_name} — замер живой, "
@@ -340,7 +347,8 @@ async def probe(repeats: int, only: Optional[str], provider_name: str) -> dict:
     dialog_model, classifier_model = default_models_for(provider_name)
     if provider_name == "deepseek":
         client: Any = DeepSeekProvider(
-            api_key=api_key, base_url=DEEPSEEK_BASE_URL,
+            api_key=api_key,
+            base_url=DEEPSEEK_BASE_URL,
             enable_thinking=settings.deepseek_enable_thinking,
         )
     else:
@@ -350,20 +358,27 @@ async def probe(repeats: int, only: Optional[str], provider_name: str) -> dict:
 
         client = AnthropicProvider(client=AsyncAnthropic(api_key=api_key))
 
-    agent = AgentLoop(client, kb, dialog_model=dialog_model,
-                      classifier_model=classifier_model)
+    agent = AgentLoop(client, kb, dialog_model=dialog_model, classifier_model=classifier_model)
 
     cases = [c for c in CASES if only is None or c.id == only]
     if not cases:
-        raise SystemExit(f"нет случая с id {only!r}; есть: "
-                         + ", ".join(c.id for c in CASES))
+        raise SystemExit(f"нет случая с id {only!r}; есть: " + ", ".join(c.id for c in CASES))
 
-    report: dict = {"provider": provider_name, "model": dialog_model,
-                    "repeats": repeats, "cases": []}
+    report: dict = {
+        "provider": provider_name,
+        "model": dialog_model,
+        "repeats": repeats,
+        "cases": [],
+    }
 
     for case in cases:
-        entry = {"id": case.id, "client_text": case.client_text, "why": case.why,
-                 "expect_money": case.expect_money, "attempts": []}
+        entry = {
+            "id": case.id,
+            "client_text": case.client_text,
+            "why": case.why,
+            "expect_money": case.expect_money,
+            "attempts": [],
+        }
         for _ in range(repeats):
             attempt = await run_attempt(agent, kb, case)
             entry["attempts"].append(attempt.__dict__)
@@ -382,6 +397,7 @@ async def probe(repeats: int, only: Optional[str], provider_name: str) -> dict:
 # --------------------------------------------------------------------------
 # Счёт
 # --------------------------------------------------------------------------
+
 
 def _ok(attempts: list[dict]) -> list[dict]:
     """Только состоявшиеся попытки: упавший ход не «ответ без вопросов»."""
@@ -420,10 +436,7 @@ def _named_money(attempts: list[dict]) -> int:
 def render(report: dict) -> str:
     n = report["repeats"]
     everything = [a for case in report["cases"] for a in case["attempts"]]
-    money_cases = [
-        a for case in report["cases"] if case["expect_money"]
-        for a in case["attempts"]
-    ]
+    money_cases = [a for case in report["cases"] if case["expect_money"] for a in case["attempts"]]
 
     lines = [
         "# Живой замер: допрашивает ли агент клиента",
@@ -431,15 +444,13 @@ def render(report: dict) -> str:
         f"Провайдер **{report['provider']}**, модель `{report['model']}`, "
         f"по **{n}** повторов на случай.",
         "",
-        "Метрики и почему они именно такие — в докстринге "
-        "`scripts/probe_questions.py`.",
+        "Метрики и почему они именно такие — в докстринге `scripts/probe_questions.py`.",
         "",
         "## Итог",
         "",
         "| величина | значение |",
         "|---|---|",
-        f"| среднее число вопросов в ответе | "
-        f"**{_average_questions(everything):.2f}** |",
+        f"| среднее число вопросов в ответе | **{_average_questions(everything):.2f}** |",
         f"| больше одного вопроса ДО рубежа (поведение модели) | "
         f"**{_rate(_many_questions_before(everything), len(_ok(everything)))}** |",
         f"| больше одного вопроса ПОСЛЕ рубежа (уехало клиенту) | "
@@ -503,8 +514,7 @@ def render(report: dict) -> str:
                 lines.append(f"   - до рубежа: {attempt['untrimmed'][:300]}")
             if attempt["reasked_known"]:
                 lines.append(
-                    "   - ПЕРЕСПРОС уже названного: "
-                    + ", ".join(attempt["reasked_known"])
+                    "   - ПЕРЕСПРОС уже названного: " + ", ".join(attempt["reasked_known"])
                 )
         lines.append("")
 
@@ -518,15 +528,15 @@ async def main() -> int:
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repeats", type=int, default=5,
-                        help="повторов на случай (по умолчанию 5)")
+    parser.add_argument(
+        "--repeats", type=int, default=5, help="повторов на случай (по умолчанию 5)"
+    )
     parser.add_argument("--case", help="прогнать только один случай по id")
-    parser.add_argument("--provider", choices=["deepseek", "anthropic"],
-                        default="deepseek")
-    parser.add_argument("--out", type=Path,
-                        help="куда положить отчёт (без расширения)")
-    parser.add_argument("--merge", nargs="+", type=Path,
-                        help="сшить готовые json-куски в один отчёт и выйти")
+    parser.add_argument("--provider", choices=["deepseek", "anthropic"], default="deepseek")
+    parser.add_argument("--out", type=Path, help="куда положить отчёт (без расширения)")
+    parser.add_argument(
+        "--merge", nargs="+", type=Path, help="сшить готовые json-куски в один отчёт и выйти"
+    )
     args = parser.parse_args()
 
     if args.merge:
@@ -543,30 +553,37 @@ async def main() -> int:
     json_path = args.out.with_suffix(".json") if args.out else REPORT_JSON
     md_path = args.out.with_suffix(".md") if args.out else REPORT_MD
     json_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2),
-                         encoding="utf-8")
+    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     md_path.write_text(render(report), encoding="utf-8")
 
     everything = [a for case in report["cases"] for a in case["attempts"]]
     done = _ok(everything)
-    money_cases = [
-        a for case in report["cases"] if case["expect_money"] for a in case["attempts"]
-    ]
-    print(f"\nПровайдер {report['provider']}, модель {report['model']}, "
-          f"{report['repeats']} повторов на случай\n")
+    money_cases = [a for case in report["cases"] if case["expect_money"] for a in case["attempts"]]
+    print(
+        f"\nПровайдер {report['provider']}, модель {report['model']}, "
+        f"{report['repeats']} повторов на случай\n"
+    )
     for case in report["cases"]:
         attempts = case["attempts"]
-        print(f"{case['id']:<32} вопросов в среднем "
-              f"{_average_questions(attempts):.2f}   "
-              f"анкет до/после {_many_questions_before(attempts)}/"
-              f"{_many_questions_after(attempts)}   "
-              f"переспрос {_reasked_known(attempts)}")
+        print(
+            f"{case['id']:<32} вопросов в среднем "
+            f"{_average_questions(attempts):.2f}   "
+            f"анкет до/после {_many_questions_before(attempts)}/"
+            f"{_many_questions_after(attempts)}   "
+            f"переспрос {_reasked_known(attempts)}"
+        )
     print(f"\nсреднее число вопросов в ответе: {_average_questions(everything):.2f}")
-    print(f"больше одного вопроса ДО рубежа:   {_rate(_many_questions_before(everything), len(done))}")
-    print(f"больше одного вопроса ПОСЛЕ:       {_rate(_many_questions_after(everything), len(done))}")
+    print(
+        f"больше одного вопроса ДО рубежа:   {_rate(_many_questions_before(everything), len(done))}"
+    )
+    print(
+        f"больше одного вопроса ПОСЛЕ:       {_rate(_many_questions_after(everything), len(done))}"
+    )
     print(f"переспрос уже названного:          {_rate(_reasked_known(everything), len(done))}")
     print(f"повтор своего же вопроса:          {_rate(_repeated_own(everything), len(done))}")
-    print(f"цифра там, где спросили цену:      {_rate(_named_money(money_cases), len(_ok(money_cases)))}")
+    print(
+        f"цифра там, где спросили цену:      {_rate(_named_money(money_cases), len(_ok(money_cases)))}"
+    )
     broken = [a for a in everything if a.get("error")]
     if broken:
         print(f"\n⚠️ упавших попыток: {len(broken)} — цифры настолько же недостоверны")

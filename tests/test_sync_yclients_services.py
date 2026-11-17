@@ -50,18 +50,24 @@ def _staff(sid, name):
 
 
 def _service(sid, title, duration=None, price_min=None, price_max=None):
-    return Service(service_id=sid, title=title, duration_seconds=duration,
-                   price_min=price_min, price_max=price_max)
+    return Service(
+        service_id=sid,
+        title=title,
+        duration_seconds=duration,
+        price_min=price_min,
+        price_max=price_max,
+    )
 
 
 # --------------------------------------------------------------------------
 # Сопоставление по названию — пример из задачи и вокруг него
 # --------------------------------------------------------------------------
 
+
 def test_similarity_matches_the_example_from_the_task():
     """Баня «Русский стиль» ↔ русская баня — буквально пример из прошлой
     задачи, логика сравнения не изменилась, изменилось только ЧТО сравниваем."""
-    score = _similarity('Баня «Русский стиль»', "русская баня")
+    score = _similarity("Баня «Русский стиль»", "русская баня")
     assert score > 0.5
 
 
@@ -75,24 +81,24 @@ def test_similarity_is_zero_for_unrelated_titles():
 
 
 def test_similarity_is_symmetric():
-    a, b = 'Баня «Русский стиль»', "русская баня"
+    a, b = "Баня «Русский стиль»", "русская баня"
     assert _similarity(a, b) == _similarity(b, a)
 
 
 def test_exact_title_match_scores_highest():
-    assert _similarity('Баня «Гараж»', "Баня Гараж") == 1.0
+    assert _similarity("Баня «Гараж»", "Баня Гараж") == 1.0
 
 
 def test_best_candidates_filters_below_the_threshold():
     staff_list = [_staff("1", "Стрижка собак"), _staff("2", "Русская баня")]
-    result = best_candidates(['Баня «Русский стиль»'], staff_list)
+    result = best_candidates(["Баня «Русский стиль»"], staff_list)
     assert [c.staff.staff_id for c in result] == ["2"]
 
 
 def test_best_candidates_sorts_by_score_descending():
     staff_list = [
-        _staff("1", "Купол со стульями"),        # слабое совпадение
-        _staff("2", "Купол с мягкими мешками"),   # точное
+        _staff("1", "Купол со стульями"),  # слабое совпадение
+        _staff("2", "Купол с мягкими мешками"),  # точное
     ]
     result = best_candidates(["Купол с мягкими мешками"], staff_list)
     assert result[0].staff.staff_id == "2"
@@ -117,6 +123,7 @@ def test_best_candidates_respects_the_limit():
 # --------------------------------------------------------------------------
 # Предложение маппинга: не молча, пропускает уже связанные
 # --------------------------------------------------------------------------
+
 
 def test_propose_mapping_skips_zones_that_already_have_a_mapping(kb, capsys):
     staff_list = [_staff("1", "Русская баня")]
@@ -160,6 +167,7 @@ def test_propose_mapping_prints_the_table_not_just_returns_it(kb, capsys):
 # Без пары / конфликт — пункт 1 задачи: 9 сотрудников на 10 зон
 # --------------------------------------------------------------------------
 
+
 def test_find_duplicate_staff_assignments_flags_the_same_staff_for_two_zones():
     proposals = {
         "bath_russian": Candidate(staff=_staff("1", "x"), score=0.5),
@@ -182,8 +190,10 @@ def test_print_unmatched_shows_the_zone_with_no_staff_at_all(kb, capsys):
     """9 сотрудников на 10 зон — минимум одна обязана оказаться здесь, и
     скрипт обязан назвать её явно, а не просто промолчать."""
     all_zone_ids = [z.id for z in kb.catalog.zones]
-    proposals = {zid: Candidate(staff=_staff(str(i), "x"), score=0.9)
-                 for i, zid in enumerate(all_zone_ids[:-1])}   # все, кроме последней
+    proposals = {
+        zid: Candidate(staff=_staff(str(i), "x"), score=0.9)
+        for i, zid in enumerate(all_zone_ids[:-1])
+    }  # все, кроме последней
 
     print_unmatched_and_conflicts(kb, proposals, existing={})
 
@@ -194,8 +204,9 @@ def test_print_unmatched_shows_the_zone_with_no_staff_at_all(kb, capsys):
 
 def test_print_unmatched_reports_none_left_when_everything_matched(kb, capsys):
     all_zone_ids = [z.id for z in kb.catalog.zones]
-    proposals = {zid: Candidate(staff=_staff(str(i), "x"), score=0.9)
-                 for i, zid in enumerate(all_zone_ids)}
+    proposals = {
+        zid: Candidate(staff=_staff(str(i), "x"), score=0.9) for i, zid in enumerate(all_zone_ids)
+    }
 
     print_unmatched_and_conflicts(kb, proposals, existing={})
 
@@ -220,6 +231,7 @@ def test_print_unmatched_loudly_warns_on_conflict(kb, capsys):
 # Подтверждение — ничего не применяется молча
 # --------------------------------------------------------------------------
 
+
 class _AsyncZoneMapping(InMemoryZoneMapping):
     """`InMemoryZoneMapping.set()` синхронный (пишет в dict в памяти) —
     сознательно, см. его докстринг. Скрипт же пишет в `SqlAlchemyZoneMapping`,
@@ -240,7 +252,7 @@ async def test_confirm_accepts_the_default_on_enter(kb, zone_mapping, monkeypatc
     """Пустой ответ (просто Enter) принимает предложенное — самый частый
     путь, должен требовать минимум усилий от оператора. service_id и
     company_id тоже пропущены Enter'ом."""
-    answers = iter(["", "", ""])   # Enter на подтверждении, service_id, company_id
+    answers = iter(["", "", ""])  # Enter на подтверждении, service_id, company_id
     monkeypatch.setattr("builtins.input", lambda *_: next(answers))
     proposals = {"bath_russian": Candidate(staff=_staff("42", "русская баня"), score=0.7)}
 
@@ -273,7 +285,7 @@ async def test_confirm_skips_a_zone_on_n(kb, zone_mapping, monkeypatch):
 
 
 async def test_confirm_writes_service_id_and_company_id_when_given(kb, zone_mapping, monkeypatch):
-    answers = iter(["", "555", "777"])   # Enter на staff_id, service_id=555, company_id=777
+    answers = iter(["", "555", "777"])  # Enter на staff_id, service_id=555, company_id=777
     monkeypatch.setattr("builtins.input", lambda *_: next(answers))
     proposals = {"bath_russian": Candidate(staff=_staff("42", "русская баня"), score=0.7)}
 
@@ -291,7 +303,7 @@ async def test_confirm_does_not_overwrite_service_id_when_skipped(kb, zone_mappi
     передаваться в mapping.set() — иначе повторный прогон скрипта стёр бы
     service_id, заведённый отдельно в прошлый раз."""
     await zone_mapping.set("bath_russian", service_id="already-set", staff_id="old")
-    answers = iter(["", "", ""])   # Enter везде, включая service_id
+    answers = iter(["", "", ""])  # Enter везде, включая service_id
     monkeypatch.setattr("builtins.input", lambda *_: next(answers))
     proposals = {"bath_russian": Candidate(staff=_staff("42", "русская баня"), score=0.7)}
 
@@ -305,7 +317,7 @@ async def test_confirm_does_not_overwrite_service_id_when_skipped(kb, zone_mappi
 async def test_confirm_processes_each_zone_independently(kb, zone_mapping, monkeypatch):
     """Одна зона пропущена, другая принята — решения не связаны между
     собой, оператор проходит их по очереди."""
-    answers = iter(["n", "", "", ""])   # "n" на первой зоне, затем Enter x3 на второй
+    answers = iter(["n", "", "", ""])  # "n" на первой зоне, затем Enter x3 на второй
     monkeypatch.setattr("builtins.input", lambda *_: next(answers))
     proposals = {
         "bath_russian": Candidate(staff=_staff("1", "a"), score=0.5),
@@ -321,6 +333,7 @@ async def test_confirm_processes_each_zone_independently(kb, zone_mapping, monke
 async def test_missing_stdin_skips_rather_than_guesses(kb, zone_mapping, monkeypatch):
     """Нет интерактивного stdin — EOFError. Пропустить зону безопаснее, чем
     трактовать пустую строку как «да» и записать непроверенное значение."""
+
     def _raise(*_):
         raise EOFError
 
@@ -338,6 +351,7 @@ async def test_missing_stdin_skips_rather_than_guesses(kb, zone_mapping, monkeyp
 # staff_id (app/booking/yclients.py), verify_live только показывает
 # результат, ничего не меняя в самом запросе.
 # --------------------------------------------------------------------------
+
 
 class _FakeProvider:
     def __init__(self, status: AvailabilityStatus, reason: str | None = None):
@@ -374,7 +388,7 @@ async def test_verify_live_reports_busy(kb, zone_mapping, capsys):
 async def test_verify_live_warns_loudly_on_unknown(kb, zone_mapping, capsys):
     """Именно ради этого пункт 4 существует: пустой/неверный staff_id даёт
     UNKNOWN, и это обязано выглядеть как предупреждение, а не как «готово»."""
-    await zone_mapping.set("bath_russian", service_id="1")   # staff_id не задан
+    await zone_mapping.set("bath_russian", service_id="1")  # staff_id не задан
     provider = _FakeProvider(AvailabilityStatus.UNKNOWN, reason="зона не заведена")
 
     await verify_live(provider, kb, zone_mapping, DATE)
@@ -396,6 +410,7 @@ async def test_verify_live_with_nothing_mapped_does_not_call_the_provider(kb, zo
 # --------------------------------------------------------------------------
 # Форматирование таблицы услуг (пункт 3 общей задачи)
 # --------------------------------------------------------------------------
+
 
 def test_money_formats_a_range():
     assert _money(_service("1", "x", price_min=2500, price_max=3500)) == "2500–3500 ₽"

@@ -109,12 +109,14 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from app.agent.debounce import Debouncer
 from app.agent.loop import TurnResult
 from app.agent.touch_tracking import TouchState, record_first_touch, reset_timer_on_reply
+from app.channels import inbound_dedup as dedup
 from app.channels.avito_payloads import (
     describe_payload_for_logging,
     extract_chat_id,
@@ -124,13 +126,12 @@ from app.channels.avito_payloads import (
     extract_item_id_from_chat,
     extract_item_id_raw,
     extract_message_id,
+    extract_message_type,
     extract_text,
     is_image_message,
-    extract_message_type,
     is_outgoing_echo,
     is_system_message,
 )
-from app.channels import inbound_dedup as dedup
 from app.channels.outbound_gate import is_listing_allowed
 from app.db.models import SendStatus
 from app.dialog_store import HISTORY_LIMIT, DialogStore
@@ -214,9 +215,9 @@ class MessagePipeline:
         avito_client: Any = None,
         ops_bot: Any = None,
         redis: Any = None,
-        debounce_window_seconds: Optional[float] = None,
-        delay_fn: Optional[Callable[[], Awaitable[None]]] = None,
-        now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        debounce_window_seconds: float | None = None,
+        delay_fn: Callable[[], Awaitable[None]] | None = None,
+        now_fn: Callable[[], datetime] = lambda: datetime.now(UTC),
         item_scope_resolver: Any = None,
     ):
         self.store = store
@@ -305,8 +306,12 @@ class MessagePipeline:
         message_id = extract_message_id(payload)
         logger.info(
             "pipeline: входящее source=%s chat_id=%s item_id=%r(%s) chat_type=%s msg_id=%s",
-            source, extract_chat_id(payload), raw_item_id, type(raw_item_id).__name__,
-            extract_chat_type(payload), message_id,
+            source,
+            extract_chat_id(payload),
+            raw_item_id,
+            type(raw_item_id).__name__,
+            extract_chat_type(payload),
+            message_id,
         )
 
         # ДЕДУПЛИКАЦИЯ — ЗДЕСЬ, А НЕ В ВЕБХУКЕ. Единственная точка, через
@@ -315,8 +320,11 @@ class MessagePipeline:
         if not await dedup.claim(message_id, self._redis):
             logger.info(
                 "pipeline: отброшен дубликат по message_id (уже в обработке или обработан)",
-                extra={"chat_id": extract_chat_id(payload), "message_id": message_id,
-                       "source": source},
+                extra={
+                    "chat_id": extract_chat_id(payload),
+                    "message_id": message_id,
+                    "source": source,
+                },
             )
             # True, А НЕ False — ЭТО ШТАТНЫЙ ИСХОД, А НЕ СБОЙ. Дубль означает,
             # что сообщение уже обработано (или его прямо сейчас обрабатывает
@@ -353,7 +361,8 @@ class MessagePipeline:
         finally:
             if handled:
                 await dedup.confirm(
-                    message_id, self._redis,
+                    message_id,
+                    self._redis,
                     self.settings.webhook_idempotency_ttl_seconds,
                 )
             else:
@@ -544,7 +553,7 @@ class MessagePipeline:
         )
         return True
 
-    async def _resolve_item_id(self, payload: dict, chat_id: str) -> Optional[str]:
+    async def _resolve_item_id(self, payload: dict, chat_id: str) -> str | None:
         """item_id из вебхука, а если его там нет — из чата отдельным запросом.
 
         Почему его иногда нет: по спеку (WebhookMessage) item_id «актуально
@@ -564,14 +573,16 @@ class MessagePipeline:
             logger.info(
                 "pipeline: чат не по объявлению (chat_type=%s) — item_id не существует, "
                 "get_chat не запрашиваем",
-                chat_type, extra={"chat_id": chat_id},
+                chat_type,
+                extra={"chat_id": chat_id},
             )
             return None
         if self.avito_client is None:
             logger.info(
                 "pipeline: item_id нет в вебхуке (chat_type=%s), запросить неоткуда — "
                 "нет avito_client",
-                chat_type, extra={"chat_id": chat_id},
+                chat_type,
+                extra={"chat_id": chat_id},
             )
             return None
 
@@ -590,12 +601,13 @@ class MessagePipeline:
         recovered = extract_item_id_from_chat(chat)
         logger.info(
             "pipeline: item_id не пришёл в вебхуке (chat_type=%s), из get_chat получено: %s",
-            chat_type, recovered or "тоже ничего",
+            chat_type,
+            recovered or "тоже ничего",
             extra={"chat_id": chat_id},
         )
         return recovered
 
-    async def _listing_is_allowed(self, item_id: Optional[str], chat_id: str) -> bool:
+    async def _listing_is_allowed(self, item_id: str | None, chat_id: str) -> bool:
         """То же правило, что и на границе отправки — буквально та же
         функция (`is_listing_allowed`), а не её копия.
 
@@ -620,7 +632,7 @@ class MessagePipeline:
         concession, touch = await self.store.load_dialog_state(chat_id)
         updated = reset_timer_on_reply(touch)
         if updated == touch:
-            return   # таймер и так не тикал — лишняя запись в БД не нужна
+            return  # таймер и так не тикал — лишняя запись в БД не нужна
         await self.store.save_dialog_state(chat_id, concession, updated)
         logger.info("pipeline: touch timer reset on client reply", extra={"chat_id": chat_id})
 
@@ -637,7 +649,9 @@ class MessagePipeline:
         dumped = json.dumps(description["sanitized"], ensure_ascii=False)
         logger.info(
             "pipeline: message without text — type=%s top_level_keys=%s payload=%s",
-            description["message_type"], description["top_level_keys"], dumped[:2000],
+            description["message_type"],
+            description["top_level_keys"],
+            dumped[:2000],
             extra={"chat_id": chat_id},
         )
 
@@ -684,7 +698,8 @@ class MessagePipeline:
             # Сначала - «вот-вот отправленное»: в базу ответ ложится после
             # отправки (и после фото), а эхо приходит раньше (аудит 30.10).
             ours = echo_registry.is_expected(chat_id, text) or await self.store.was_sent_by_us(
-                chat_id, text,
+                chat_id,
+                text,
             )
         except Exception:
             # Сбой проверки — считаем сообщение своим и молчим про перехват.
@@ -734,7 +749,8 @@ class MessagePipeline:
                     await saver(chat_id, text, extract_message_id(payload))
                 except Exception:
                     logger.exception(
-                        "pipeline: текст менеджера не сохранён", extra={"chat_id": chat_id},
+                        "pipeline: текст менеджера не сохранён",
+                        extra={"chat_id": chat_id},
                     )
         try:
             await self.ops_service.note_operator_message(chat_id)
@@ -764,7 +780,7 @@ class MessagePipeline:
         await self._deliver(chat, result, client_text="[фото]", gate=None, fallback_text=None)
 
     async def _handle_system_message(
-        self, chat_id: str, item_id: Optional[str], *, too_old: bool
+        self, chat_id: str, item_id: str | None, *, too_old: bool
     ) -> None:
         """Приветствие на системное сообщение Авито — один раз на чат.
 
@@ -784,8 +800,7 @@ class MessagePipeline:
         """
         if too_old:
             logger.info(
-                "pipeline: системное сообщение старше AGENT_MIN_INBOUND_TS — "
-                "без приветствия",
+                "pipeline: системное сообщение старше AGENT_MIN_INBOUND_TS — без приветствия",
                 extra={"chat_id": chat_id},
             )
             return
@@ -829,9 +844,11 @@ class MessagePipeline:
             )
             chat = await self.store.get_or_create_chat(chat_id, item_id=item_id)
             await self._deliver(
-                chat, TurnResult(text=SYSTEM_MESSAGE_GREETING),
+                chat,
+                TurnResult(text=SYSTEM_MESSAGE_GREETING),
                 client_text="[системное сообщение Авито]",
-                gate=None, fallback_text=None,
+                gate=None,
+                fallback_text=None,
             )
         finally:
             self._greeting_in_flight.discard(chat_id)
@@ -860,7 +877,9 @@ class MessagePipeline:
         # то есть без кулдауна.
         allowed, reason = await self.ops_service.should_agent_reply(chat_id)
         if not allowed:
-            logger.info("pipeline: agent stays silent", extra={"chat_id": chat_id, "reason": reason})
+            logger.info(
+                "pipeline: agent stays silent", extra={"chat_id": chat_id, "reason": reason}
+            )
             return
 
         history = await self.store.load_history(chat_id, limit=HISTORY_LIMIT)
@@ -916,7 +935,7 @@ class MessagePipeline:
         # живого режима: в DRY_RUN due_at никогда не выставляется, значит
         # авто-отправка по таймауту всё равно не сработает, а лишний вызов
         # модели того не стоит.
-        fallback_text: Optional[str] = None
+        fallback_text: str | None = None
         if gate is not None and not self.settings.dry_run:
             fallback = await self.agent_loop.run_turn(
                 dialog_id=chat_id,
@@ -929,9 +948,11 @@ class MessagePipeline:
             )
             fallback_text = fallback.text
 
-        await self._deliver(chat, result, client_text=merged_text, gate=gate, fallback_text=fallback_text)
+        await self._deliver(
+            chat, result, client_text=merged_text, gate=gate, fallback_text=fallback_text
+        )
 
-    def _concession_gate(self, result: Any) -> Optional[Any]:
+    def _concession_gate(self, result: Any) -> Any | None:
         """Первое решение за ход, которое требует одобрения — или None.
 
         `moderation_mode="off"` отключает гейт целиком (полная автономия,
@@ -962,21 +983,22 @@ class MessagePipeline:
         """
         if not replied or not getattr(concession, "base_price_quoted", False):
             return touch
-        return record_first_touch(
-            touch, self.now_fn(), self.settings.touch_reminder_delay_minutes
-        )
+        return record_first_touch(touch, self.now_fn(), self.settings.touch_reminder_delay_minutes)
 
     # -- доставка ----------------------------------------------------------
 
     async def _deliver(
-        self, chat: Any, result: Any, client_text: str,
-        gate: Optional[Any] = None, fallback_text: Optional[str] = None,
+        self,
+        chat: Any,
+        result: Any,
+        client_text: str,
+        gate: Any | None = None,
+        fallback_text: str | None = None,
     ) -> None:
         chat_id = chat.chat_id
 
         autonomous = (
-            not self.settings.dry_run and gate is None
-            and self.settings.moderation_mode != "all"
+            not self.settings.dry_run and gate is None and self.settings.moderation_mode != "all"
         )
         if getattr(result, "photos", None) and not autonomous:
             # ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ. Одобрение оператором отправляет только
@@ -988,7 +1010,8 @@ class MessagePipeline:
             # отправленные, уйдут тогда.
             logger.warning(
                 "pipeline: ход на модерации — %d фото клиенту не отправлены",
-                len(result.photos), extra={"chat_id": chat_id},
+                len(result.photos),
+                extra={"chat_id": chat_id},
             )
 
         if self.settings.dry_run:
@@ -997,7 +1020,12 @@ class MessagePipeline:
             # запроса на скидку, а решение о самом холде дальше не идёт.
             if gate is not None:
                 await self._queue_concession_approval(
-                    chat, result, client_text, gate, fallback_text=None, due_at=None,
+                    chat,
+                    result,
+                    client_text,
+                    gate,
+                    fallback_text=None,
+                    due_at=None,
                 )
             else:
                 await self._queue_for_moderation(chat, result, client_text)
@@ -1008,7 +1036,12 @@ class MessagePipeline:
                 minutes=self.settings.concession_approval_timeout_minutes
             )
             await self._queue_concession_approval(
-                chat, result, client_text, gate, fallback_text=fallback_text, due_at=due_at,
+                chat,
+                result,
+                client_text,
+                gate,
+                fallback_text=fallback_text,
+                due_at=due_at,
             )
             return
 
@@ -1033,7 +1066,10 @@ class MessagePipeline:
         sent_photos = await self._send_photos(chat_id, getattr(result, "photos", None) or [])
 
         await self.store.save_outgoing(
-            chat_id, result.text, SendStatus.sent, llm_meta=result.llm_meta,
+            chat_id,
+            result.text,
+            SendStatus.sent,
+            llm_meta=result.llm_meta,
             image_ids=sent_photos or None,
         )
         messages_total.labels(direction="outgoing", status="sent").inc()
@@ -1088,7 +1124,8 @@ class MessagePipeline:
         if image_ids:
             logger.info(
                 "pipeline: фото клиенту — отправлено %d из %d",
-                len(sent), len(image_ids[:PHOTOS_PER_TURN]),
+                len(sent),
+                len(image_ids[:PHOTOS_PER_TURN]),
                 extra={"chat_id": chat_id},
             )
         return sent
@@ -1110,7 +1147,9 @@ class MessagePipeline:
             return
         try:
             await redis.set(
-                self.OWN_IMAGES_KEY.format(chat_id=chat_id), "1", ex=self.OWN_IMAGES_TTL,
+                self.OWN_IMAGES_KEY.format(chat_id=chat_id),
+                "1",
+                ex=self.OWN_IMAGES_TTL,
             )
         except Exception:
             logger.exception("pipeline: метка своих фото не записана", extra={"chat_id": chat_id})
@@ -1122,7 +1161,9 @@ class MessagePipeline:
                 if await redis.get(self.OWN_IMAGES_KEY.format(chat_id=chat_id)):
                     return True
             except Exception:
-                logger.exception("pipeline: метка своих фото не прочитана", extra={"chat_id": chat_id})
+                logger.exception(
+                    "pipeline: метка своих фото не прочитана", extra={"chat_id": chat_id}
+                )
         recent = getattr(self.store, "sent_images_recently", None)
         if recent is None:
             return False
@@ -1130,7 +1171,7 @@ class MessagePipeline:
             return bool(await recent(chat_id, minutes=self.OWN_IMAGES_TTL // 60))
         except Exception:
             logger.exception("pipeline: не удалось проверить свои фото", extra={"chat_id": chat_id})
-            return True   # см. was_sent_by_us: ошибиться в сторону «это мы» безопаснее
+            return True  # см. was_sent_by_us: ошибиться в сторону «это мы» безопаснее
 
     async def _queue_for_moderation(self, chat: Any, result: Any, client_text: str) -> None:
         """Обычный холд — DRY_RUN без запроса на скидку, либо
@@ -1146,8 +1187,14 @@ class MessagePipeline:
         await self._count_agent_reply(chat_id)
 
     async def _queue_concession_approval(
-        self, chat: Any, result: Any, client_text: str, gate: Any,
-        *, fallback_text: Optional[str], due_at: Optional[datetime],
+        self,
+        chat: Any,
+        result: Any,
+        client_text: str,
+        gate: Any,
+        *,
+        fallback_text: str | None,
+        due_at: datetime | None,
     ) -> None:
         """Запрос на ценовую уступку — богатая карточка, отдельные кнопки,
         и (в живом режиме) дедлайн с заранее посчитанным запасным ответом.
@@ -1260,8 +1307,7 @@ class MessagePipeline:
             # третьим путём. Правило одно на все выходы.
             if not await self._client_wrote_after_threshold(pending.chat_id):
                 logger.info(
-                    "pipeline: запасной ответ отменён — клиент писал раньше "
-                    "AGENT_MIN_INBOUND_TS",
+                    "pipeline: запасной ответ отменён — клиент писал раньше AGENT_MIN_INBOUND_TS",
                     extra={"chat_id": pending.chat_id},
                 )
                 await self.ops_service.store.set_pending(pending.chat_id, None)
@@ -1277,7 +1323,9 @@ class MessagePipeline:
                 continue
 
             await self.store.save_outgoing(
-                pending.chat_id, pending.fallback_text, SendStatus.sent,
+                pending.chat_id,
+                pending.fallback_text,
+                SendStatus.sent,
             )
             messages_total.labels(direction="outgoing", status="sent").inc()
             await self._count_agent_reply(pending.chat_id)
@@ -1321,11 +1369,11 @@ class MessagePipeline:
             if not await self._client_wrote_after_threshold(chat_id):
                 continue
             if _is_just_acknowledgement(client_text):
-                continue   # «спасибо», «ок», «подумаю» - отвечать через полчаса нечего
+                continue  # «спасибо», «ок», «подумаю» - отвечать через полчаса нечего
             try:
                 await self._backfill_operator_messages(chat_id)
                 if not await self._still_waiting(chat_id, finder, now, minutes, max_hours):
-                    continue   # подтянули ответ менеджера, которого не было в базе
+                    continue  # подтянули ответ менеджера, которого не было в базе
                 await self._return_chat_to_agent(chat_id, minutes)
                 await self._run_turn(chat_id, client_text)
                 rescued.append(chat_id)
@@ -1356,7 +1404,7 @@ class MessagePipeline:
             text = ((m.get("content") or {}).get("text") or "").strip()
             if not text or await self.store.was_sent_by_us(chat_id, text):
                 continue
-            created = datetime.fromtimestamp(int(m.get("created") or 0), timezone.utc)
+            created = datetime.fromtimestamp(int(m.get("created") or 0), UTC)
             if await saver(chat_id, text, str(m.get("id") or "") or None, created):
                 saved += 1
         return saved
@@ -1368,7 +1416,9 @@ class MessagePipeline:
         flags.takeover_at = None
         await store.set_flags(chat_id, flags)
         await store.log_action(chat_id, 0, "auto_return", {"reason": f"клиент ждёт {minutes}+ мин"})
-        logger.warning("pipeline: клиент ждал менеджера - отвечает агент", extra={"chat_id": chat_id})
+        logger.warning(
+            "pipeline: клиент ждал менеджера - отвечает агент", extra={"chat_id": chat_id}
+        )
         if self.ops_bot is None or not getattr(self.settings, "telegram_ops_chat_id", ""):
             return
         try:
@@ -1381,7 +1431,9 @@ class MessagePipeline:
                 ),
             )
         except Exception:
-            logger.exception("pipeline: уведомление о возврате чата не ушло", extra={"chat_id": chat_id})
+            logger.exception(
+                "pipeline: уведомление о возврате чата не ушло", extra={"chat_id": chat_id}
+            )
 
     async def _count_agent_reply(self, chat_id: str) -> None:
         """Счётчик ответов агента растёт В ДВУХ местах, и это не дублирование.
@@ -1402,7 +1454,9 @@ class MessagePipeline:
         except Exception:
             # Счётчик — предохранитель, а не часть ответа клиенту: его сбой
             # не должен отменять уже отправленное сообщение.
-            logger.exception("pipeline: failed to count the agent reply", extra={"chat_id": chat_id})
+            logger.exception(
+                "pipeline: failed to count the agent reply", extra={"chat_id": chat_id}
+            )
 
     async def _notify_operator(self, chat: Any, result: Any, client_text: str) -> None:
         """Карточка в Telegram. Отсутствие бота — не ошибка: очередь
@@ -1431,7 +1485,9 @@ class MessagePipeline:
             )
         except Exception:
             # Телеграм недоступен — ответ уже в очереди, диалог не теряется.
-            logger.exception("pipeline: operator notification failed", extra={"chat_id": chat.chat_id})
+            logger.exception(
+                "pipeline: operator notification failed", extra={"chat_id": chat.chat_id}
+            )
 
     async def _notify_daily_limit_exhausted(self, chat_id: str) -> None:
         """R10: дневной лимит уступок исчерпан. Всегда логируется (ниже) —

@@ -1,0 +1,25 @@
+[project]
+name = "llm-sales-agent"
+version = "1.0.0"
+description = "LLM sales agent for Avito listings: answers buyers, quotes prices, checks YCLIENTS availability"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",  # long lines are mostly Russian prose in comments and prompt texts
+    "B008",  # FastAPI dependency injection uses Depends() in defaults by design
+    "UP042", # (str, Enum) -> StrEnum changes str() of values stored in the database
+    "UP046", # PEP 695 generics: no benefit, noisier diffs
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B017"]  # pytest.raises(Exception) is intentional in fail-closed tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "scripts", "tests"]

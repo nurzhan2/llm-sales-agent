@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from sqlalchemy import BigInteger, Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -38,11 +37,11 @@ class ZoneServiceMap(Base):
         BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
     )
     zone_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    service_id: Mapped[Optional[str]] = mapped_column(String(64))
-    staff_id: Mapped[Optional[str]] = mapped_column(String(64))
-    company_id: Mapped[Optional[str]] = mapped_column(String(64))
+    service_id: Mapped[str | None] = mapped_column(String(64))
+    staff_id: Mapped[str | None] = mapped_column(String(64))
+    company_id: Mapped[str | None] = mapped_column(String(64))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    note: Mapped[Optional[str]] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
 
 
 @dataclass
@@ -51,7 +50,7 @@ class InMemoryZoneMapping:
 
     rows: dict[str, dict] = field(default_factory=dict)
 
-    def get(self, zone_id: str) -> Optional[dict]:
+    def get(self, zone_id: str) -> dict | None:
         row = self.rows.get(zone_id)
         if row and row.get("enabled", True):
             return row
@@ -130,7 +129,7 @@ class SqlAlchemyZoneMapping:
         внешних правок в обход адаптера."""
         self._cache = {}
 
-    def get(self, zone_id: str) -> Optional[dict]:
+    def get(self, zone_id: str) -> dict | None:
         row = self._cache.get(zone_id)
         if row and row.get("enabled", True):
             return row
@@ -143,7 +142,9 @@ class SqlAlchemyZoneMapping:
 
         async with self._session_factory() as session:
             existing = (
-                await session.execute(select(ZoneServiceMap).where(ZoneServiceMap.zone_id == zone_id))
+                await session.execute(
+                    select(ZoneServiceMap).where(ZoneServiceMap.zone_id == zone_id)
+                )
             ).scalar_one_or_none()
             if existing is None:
                 existing = ZoneServiceMap(zone_id=zone_id, enabled=True)

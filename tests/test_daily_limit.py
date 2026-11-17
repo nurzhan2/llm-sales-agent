@@ -7,7 +7,7 @@ Telegram уходит ровно один раз — в момент, когда
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.channels import daily_limit
 
@@ -37,12 +37,13 @@ class BrokenRedis:
         raise ConnectionError("Redis недоступен")
 
 
-NOW = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 
 
 # --------------------------------------------------------------------------
 # Основной сценарий: N проходит, N+1 — нет
 # --------------------------------------------------------------------------
+
 
 async def test_messages_up_to_the_limit_are_allowed():
     redis = FakeRedis()
@@ -54,9 +55,7 @@ async def test_messages_up_to_the_limit_are_allowed():
 
 async def test_the_nplus1th_message_is_blocked_not_the_nth():
     redis = FakeRedis()
-    results = [
-        await daily_limit.check_and_increment(redis, limit=5, now=NOW) for _ in range(6)
-    ]
+    results = [await daily_limit.check_and_increment(redis, limit=5, now=NOW) for _ in range(6)]
 
     fifth = results[4]
     sixth = results[5]
@@ -69,9 +68,7 @@ async def test_the_nplus1th_message_is_blocked_not_the_nth():
 
 async def test_alert_fires_exactly_on_the_nplus1th_message():
     redis = FakeRedis()
-    results = [
-        await daily_limit.check_and_increment(redis, limit=3, now=NOW) for _ in range(6)
-    ]
+    results = [await daily_limit.check_and_increment(redis, limit=3, now=NOW) for _ in range(6)]
 
     just_exceeded_flags = [r.just_exceeded for r in results]
     # Индексы 0..2 — сообщения 1..3 (разрешены), индекс 3 — сообщение 4 (N+1,
@@ -97,6 +94,7 @@ async def test_blocked_messages_keep_incrementing_the_counter():
 # Выключен
 # --------------------------------------------------------------------------
 
+
 async def test_limit_zero_disables_the_check_without_touching_redis():
     redis = FakeRedis()
     result = await daily_limit.check_and_increment(redis, limit=0, now=NOW)
@@ -115,14 +113,17 @@ async def test_negative_limit_also_disables_the_check():
 # Сутки — по Москве
 # --------------------------------------------------------------------------
 
+
 async def test_counter_resets_on_the_next_moscow_day():
     redis = FakeRedis()
-    late_utc = datetime(2026, 8, 28, 20, 59, tzinfo=timezone.utc)  # 23:59 МСК
-    just_after_midnight_utc = datetime(2026, 8, 28, 21, 1, tzinfo=timezone.utc)  # 00:01 МСК след. дня
+    late_utc = datetime(2026, 8, 28, 20, 59, tzinfo=UTC)  # 23:59 МСК
+    just_after_midnight_utc = datetime(2026, 8, 28, 21, 1, tzinfo=UTC)  # 00:01 МСК след. дня
 
     for _ in range(3):
         await daily_limit.check_and_increment(redis, limit=3, now=late_utc)
-    after_midnight = await daily_limit.check_and_increment(redis, limit=3, now=just_after_midnight_utc)
+    after_midnight = await daily_limit.check_and_increment(
+        redis, limit=3, now=just_after_midnight_utc
+    )
 
     assert after_midnight.count == 1
     assert after_midnight.allowed is True
@@ -131,6 +132,7 @@ async def test_counter_resets_on_the_next_moscow_day():
 # --------------------------------------------------------------------------
 # Redis не настроен вообще — не авария, прозрачно (как kill_switch/dedup)
 # --------------------------------------------------------------------------
+
 
 async def test_no_redis_allows_and_does_not_crash():
     result = await daily_limit.check_and_increment(None, limit=5, now=NOW)
@@ -148,6 +150,7 @@ async def test_no_redis_allows_and_does_not_crash():
 # нужнее всего. Fail open в аварию означал бы «предохранителя нет именно
 # тогда, когда что-то уже пошло не так».
 # --------------------------------------------------------------------------
+
 
 async def test_redis_failure_fails_closed():
     result = await daily_limit.check_and_increment(BrokenRedis(), limit=1, now=NOW)
@@ -197,8 +200,7 @@ def test_default_limit_is_a_working_ceiling_not_disabled(monkeypatch):
     settings = _settings_without_the_variable(monkeypatch)
 
     assert settings.outbound_daily_limit > 0, (
-        "дефолт 0 означает «лимита нет» — забытая переменная тихо снимает "
-        "потолок исходящих целиком"
+        "дефолт 0 означает «лимита нет» — забытая переменная тихо снимает потолок исходящих целиком"
     )
     assert settings.outbound_daily_limit == 300
 

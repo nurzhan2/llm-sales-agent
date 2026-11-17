@@ -24,10 +24,10 @@ from app.agent.one_question import (
 )
 from app.pipeline import IMAGE_WITHOUT_TEXT_REPLY
 
-
 # --------------------------------------------------------------------------
 # Счёт вопросов
 # --------------------------------------------------------------------------
+
 
 def test_a_single_question_is_counted_once():
     assert count_questions("На какое число планируете?") == 1
@@ -64,6 +64,7 @@ def test_empty_input_does_not_crash(text):
 # --------------------------------------------------------------------------
 # Обрезка
 # --------------------------------------------------------------------------
+
 
 def test_a_reply_with_one_question_is_untouched():
     """Главная форма ответа из требования заказчика — проходит как есть."""
@@ -130,8 +131,9 @@ def test_split_sentences_reports_offsets_into_the_original_text():
     parts = split_sentences(text)
 
     assert [chunk for _, chunk in parts] == ["Первое.", "Второе?"]
-    assert [text[offset:offset + len(chunk)] for offset, chunk in parts] == [
-        "Первое.", "Второе?",
+    assert [text[offset : offset + len(chunk)] for offset, chunk in parts] == [
+        "Первое.",
+        "Второе?",
     ]
 
 
@@ -142,6 +144,7 @@ def test_normalize_touches_nothing_but_repeated_marks():
 # --------------------------------------------------------------------------
 # Собственные тексты системы
 # --------------------------------------------------------------------------
+
 
 def test_the_systems_own_replies_are_never_trimmed():
     """Подстановки рубежей, отбивки и шаблонный ответ на фото обязаны

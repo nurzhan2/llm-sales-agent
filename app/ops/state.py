@@ -10,9 +10,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from typing import Any, Optional, Protocol
+from datetime import UTC, datetime, timedelta
+from typing import Any, Protocol
 
 # Через сколько бездействия оператора чат возвращается агенту.
 # Запасное значение на случай, когда настройки не передали (старые вызовы в
@@ -26,31 +25,31 @@ class PendingReply:
     chat_id: str
     text: str
     created_at: datetime
-    status: str = "pending"          # pending | approved | rejected | edited
-    decided_by: Optional[int] = None
+    status: str = "pending"  # pending | approved | rejected | edited
+    decided_by: int | None = None
     # --- Модерация ценовых уступок (MODERATION_MODE=concessions_only) ----
     # is_concession=True — этот pending на самом деле запрос на скидку, а
     # не обычный DRY_RUN-холд: у него есть дедлайн, и по истечении фоновый
     # воркер (app.pipeline.MessagePipeline.check_concession_timeouts)
     # отправит fallback_text вместо ожидания оператора вечно.
     is_concession: bool = False
-    fallback_text: Optional[str] = None
-    due_at: Optional[datetime] = None
+    fallback_text: str | None = None
+    due_at: datetime | None = None
 
 
 @dataclass
 class ChatFlags:
     is_human_takeover: bool = False
     ai_enabled: bool = True
-    takeover_at: Optional[datetime] = None
+    takeover_at: datetime | None = None
     agent_reply_count: int = 0
 
 
 class OpsStore(Protocol):
     async def get_flags(self, chat_id: str) -> ChatFlags: ...
     async def set_flags(self, chat_id: str, flags: ChatFlags) -> None: ...
-    async def get_pending(self, chat_id: str) -> Optional[PendingReply]: ...
-    async def set_pending(self, chat_id: str, reply: Optional[PendingReply]) -> None: ...
+    async def get_pending(self, chat_id: str) -> PendingReply | None: ...
+    async def set_pending(self, chat_id: str, reply: PendingReply | None) -> None: ...
     async def log_action(self, chat_id: str, user_id: int, action: str, payload: dict) -> None: ...
     async def list_due_concessions(self, now: datetime) -> list[PendingReply]: ...
 
@@ -72,10 +71,10 @@ class InMemoryOpsStore:
     async def set_flags(self, chat_id: str, flags: ChatFlags) -> None:
         self.flags[chat_id] = flags
 
-    async def get_pending(self, chat_id: str) -> Optional[PendingReply]:
+    async def get_pending(self, chat_id: str) -> PendingReply | None:
         return self.pending.get(chat_id)
 
-    async def set_pending(self, chat_id: str, reply: Optional[PendingReply]) -> None:
+    async def set_pending(self, chat_id: str, reply: PendingReply | None) -> None:
         if reply is None:
             self.pending.pop(chat_id, None)
         else:
@@ -90,7 +89,7 @@ class InMemoryOpsStore:
                 "user_id": user_id,
                 "action": action,
                 "payload": payload,
-                "at": datetime.now(timezone.utc),
+                "at": datetime.now(UTC),
             }
         )
 
@@ -99,7 +98,8 @@ class InMemoryOpsStore:
 
     async def list_due_concessions(self, now: datetime) -> list[PendingReply]:
         return [
-            reply for reply in self.pending.values()
+            reply
+            for reply in self.pending.values()
             if reply.is_concession and reply.due_at is not None and reply.due_at <= now
         ]
 
@@ -186,7 +186,7 @@ class SqlAlchemyOpsStore:
             chat.agent_reply_count = flags.agent_reply_count
             await session.commit()
 
-    async def get_pending(self, chat_id: str) -> Optional[PendingReply]:
+    async def get_pending(self, chat_id: str) -> PendingReply | None:
         from sqlalchemy import select
 
         from app.db.models import PendingReplyRow
@@ -202,7 +202,7 @@ class SqlAlchemyOpsStore:
             return None
         return _pending_reply_from_row(row)
 
-    async def set_pending(self, chat_id: str, reply: Optional[PendingReply]) -> None:
+    async def set_pending(self, chat_id: str, reply: PendingReply | None) -> None:
         from sqlalchemy import delete, select
 
         from app.db.models import PendingReplyRow
@@ -238,14 +238,18 @@ class SqlAlchemyOpsStore:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(PendingReplyRow).where(
-                        PendingReplyRow.is_concession.is_(True),
-                        PendingReplyRow.due_at.is_not(None),
-                        PendingReplyRow.due_at <= now,
+                (
+                    await session.execute(
+                        select(PendingReplyRow).where(
+                            PendingReplyRow.is_concession.is_(True),
+                            PendingReplyRow.due_at.is_not(None),
+                            PendingReplyRow.due_at <= now,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         return [_pending_reply_from_row(row) for row in rows]
 
     async def log_action(self, chat_id: str, user_id: int, action: str, payload: dict) -> None:
@@ -266,7 +270,8 @@ class SqlAlchemyOpsStore:
 
     async def moderation_stats(self) -> dict[str, int]:
         """{'approved': n, 'edited': n, 'rejected': n} из журнала действий."""
-        from sqlalchemy import func as sa_func, select
+        from sqlalchemy import func as sa_func
+        from sqlalchemy import select
 
         from app.db.models import OperatorAction
 
@@ -285,9 +290,7 @@ class SqlAlchemyOpsStore:
         return stats
 
 
-def should_auto_return(
-    flags: ChatFlags, now: Optional[datetime] = None, settings: Any = None
-) -> bool:
+def should_auto_return(flags: ChatFlags, now: datetime | None = None, settings: Any = None) -> bool:
     """Оператор взял чат и забыл — через `takeover_auto_return_hours` вернуть.
 
     Срок читается из настроек и НЕ зависит от режима перехвата: даже в
@@ -298,18 +301,18 @@ def should_auto_return(
     """
     if not flags.is_human_takeover or flags.takeover_at is None:
         return False
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     taken_at = flags.takeover_at
     if taken_at.tzinfo is None:
-        taken_at = taken_at.replace(tzinfo=timezone.utc)
+        taken_at = taken_at.replace(tzinfo=UTC)
     hours = getattr(settings, "takeover_auto_return_hours", None)
     timeout = timedelta(hours=int(hours)) if hours else TAKEOVER_TIMEOUT
     return now - taken_at >= timeout
 
 
 def auto_return_reason(
-    flags: ChatFlags, settings: Any = None, now: Optional[datetime] = None
-) -> Optional[str]:
+    flags: ChatFlags, settings: Any = None, now: datetime | None = None
+) -> str | None:
     """Почему чат пора вернуть агенту — или None, если не пора.
 
     Строкой, а не булевым: причина уходит в журнал операторских действий, и

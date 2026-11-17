@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional, Protocol
+from datetime import UTC, datetime
+from typing import Any, Protocol
 
 from app.kb.overrides import Override
 
@@ -25,13 +25,13 @@ class OverrideRecord:
     path: str
     value: Any
     previous_value: Any
-    field_key: Optional[str]
-    zone_id: Optional[str]
+    field_key: str | None
+    zone_id: str | None
     changed_by: int
-    comment: Optional[str]
-    created_at: Optional[datetime]
-    reverted_at: Optional[datetime] = None
-    reverted_by: Optional[int] = None
+    comment: str | None
+    created_at: datetime | None
+    reverted_at: datetime | None = None
+    reverted_by: int | None = None
 
     @property
     def is_active(self) -> bool:
@@ -42,11 +42,18 @@ class OverrideStore(Protocol):
     async def list_active(self) -> list[OverrideRecord]: ...
     async def list_journal(self, limit: int = 100) -> list[OverrideRecord]: ...
     async def add(
-        self, *, path: str, value: Any, previous_value: Any, field_key: Optional[str],
-        zone_id: Optional[str], changed_by: int, comment: Optional[str] = None,
+        self,
+        *,
+        path: str,
+        value: Any,
+        previous_value: Any,
+        field_key: str | None,
+        zone_id: str | None,
+        changed_by: int,
+        comment: str | None = None,
     ) -> OverrideRecord: ...
-    async def revert(self, override_id: int, reverted_by: int) -> Optional[OverrideRecord]: ...
-    async def last_active(self) -> Optional[OverrideRecord]: ...
+    async def revert(self, override_id: int, reverted_by: int) -> OverrideRecord | None: ...
+    async def last_active(self) -> OverrideRecord | None: ...
 
 
 @dataclass
@@ -61,40 +68,59 @@ class InMemoryOverrideStore:
         return sorted(self.rows, key=lambda r: r.id, reverse=True)[:limit]
 
     async def add(
-        self, *, path: str, value: Any, previous_value: Any, field_key: Optional[str],
-        zone_id: Optional[str], changed_by: int, comment: Optional[str] = None,
+        self,
+        *,
+        path: str,
+        value: Any,
+        previous_value: Any,
+        field_key: str | None,
+        zone_id: str | None,
+        changed_by: int,
+        comment: str | None = None,
     ) -> OverrideRecord:
         record = OverrideRecord(
-            id=self._next_id, path=path, value=value, previous_value=previous_value,
-            field_key=field_key, zone_id=zone_id, changed_by=changed_by,
-            comment=comment, created_at=datetime.now(timezone.utc),
+            id=self._next_id,
+            path=path,
+            value=value,
+            previous_value=previous_value,
+            field_key=field_key,
+            zone_id=zone_id,
+            changed_by=changed_by,
+            comment=comment,
+            created_at=datetime.now(UTC),
         )
         self._next_id += 1
         self.rows.append(record)
         return record
 
-    async def revert(self, override_id: int, reverted_by: int) -> Optional[OverrideRecord]:
+    async def revert(self, override_id: int, reverted_by: int) -> OverrideRecord | None:
         for i, row in enumerate(self.rows):
             if row.id == override_id and row.is_active:
                 reverted = OverrideRecord(
-                    **{**row.__dict__, "reverted_at": datetime.now(timezone.utc),
-                       "reverted_by": reverted_by}
+                    **{**row.__dict__, "reverted_at": datetime.now(UTC), "reverted_by": reverted_by}
                 )
                 self.rows[i] = reverted
                 return reverted
         return None
 
-    async def last_active(self) -> Optional[OverrideRecord]:
+    async def last_active(self) -> OverrideRecord | None:
         active = await self.list_active()
         return max(active, key=lambda r: r.id) if active else None
 
 
 def _to_record(row) -> OverrideRecord:
     return OverrideRecord(
-        id=row.id, path=row.path, value=row.value, previous_value=row.previous_value,
-        field_key=row.field_key, zone_id=row.zone_id, changed_by=row.changed_by,
-        comment=row.comment, created_at=row.created_at,
-        reverted_at=row.reverted_at, reverted_by=row.reverted_by,
+        id=row.id,
+        path=row.path,
+        value=row.value,
+        previous_value=row.previous_value,
+        field_key=row.field_key,
+        zone_id=row.zone_id,
+        changed_by=row.changed_by,
+        comment=row.comment,
+        created_at=row.created_at,
+        reverted_at=row.reverted_at,
+        reverted_by=row.reverted_by,
     )
 
 
@@ -111,12 +137,16 @@ class SqlAlchemyOverrideStore:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(CatalogOverride)
-                    .where(CatalogOverride.reverted_at.is_(None))
-                    .order_by(CatalogOverride.id)
+                (
+                    await session.execute(
+                        select(CatalogOverride)
+                        .where(CatalogOverride.reverted_at.is_(None))
+                        .order_by(CatalogOverride.id)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         return [_to_record(r) for r in rows]
 
     async def list_journal(self, limit: int = 100) -> list[OverrideRecord]:
@@ -126,29 +156,45 @@ class SqlAlchemyOverrideStore:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(CatalogOverride).order_by(CatalogOverride.id.desc()).limit(limit)
+                (
+                    await session.execute(
+                        select(CatalogOverride).order_by(CatalogOverride.id.desc()).limit(limit)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         return [_to_record(r) for r in rows]
 
     async def add(
-        self, *, path: str, value: Any, previous_value: Any, field_key: Optional[str],
-        zone_id: Optional[str], changed_by: int, comment: Optional[str] = None,
+        self,
+        *,
+        path: str,
+        value: Any,
+        previous_value: Any,
+        field_key: str | None,
+        zone_id: str | None,
+        changed_by: int,
+        comment: str | None = None,
     ) -> OverrideRecord:
         from app.db.models import CatalogOverride
 
         async with self._session_factory() as session:
             row = CatalogOverride(
-                path=path, value=value, previous_value=previous_value,
-                field_key=field_key, zone_id=zone_id, changed_by=changed_by, comment=comment,
+                path=path,
+                value=value,
+                previous_value=previous_value,
+                field_key=field_key,
+                zone_id=zone_id,
+                changed_by=changed_by,
+                comment=comment,
             )
             session.add(row)
             await session.commit()
             await session.refresh(row)
             return _to_record(row)
 
-    async def revert(self, override_id: int, reverted_by: int) -> Optional[OverrideRecord]:
+    async def revert(self, override_id: int, reverted_by: int) -> OverrideRecord | None:
         from sqlalchemy import select
 
         from app.db.models import CatalogOverride
@@ -161,13 +207,13 @@ class SqlAlchemyOverrideStore:
             ).scalar_one_or_none()
             if row is None or row.reverted_at is not None:
                 return None
-            row.reverted_at = datetime.now(timezone.utc)
+            row.reverted_at = datetime.now(UTC)
             row.reverted_by = reverted_by
             await session.commit()
             await session.refresh(row)
             return _to_record(row)
 
-    async def last_active(self) -> Optional[OverrideRecord]:
+    async def last_active(self) -> OverrideRecord | None:
         from sqlalchemy import select
 
         from app.db.models import CatalogOverride

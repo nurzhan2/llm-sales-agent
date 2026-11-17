@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, Protocol
+from datetime import UTC, datetime, timedelta
+from typing import Protocol
 
 from app.agent.listing_context import ItemZoneRow
 from app.agent.touch_tracking import TouchState
@@ -62,9 +62,9 @@ class ChatRecord:
     """Снимок строки `Chat` — ровно те поля, которые нужны конвейеру."""
 
     chat_id: str
-    item_id: Optional[str] = None
-    zone_id: Optional[str] = None
-    buyer_name: Optional[str] = None
+    item_id: str | None = None
+    zone_id: str | None = None
+    buyer_name: str | None = None
     is_human_takeover: bool = False
     ai_enabled: bool = True
     manual_hold: bool = False
@@ -73,11 +73,11 @@ class ChatRecord:
 
 class DialogStore(Protocol):
     async def get_or_create_chat(
-        self, chat_id: str, item_id: Optional[str] = None, buyer_name: Optional[str] = None
+        self, chat_id: str, item_id: str | None = None, buyer_name: str | None = None
     ) -> ChatRecord: ...
 
     async def save_incoming(
-        self, chat_id: str, text: str, avito_message_id: Optional[str] = None
+        self, chat_id: str, text: str, avito_message_id: str | None = None
     ) -> bool: ...
 
     async def save_outgoing(
@@ -85,16 +85,14 @@ class DialogStore(Protocol):
         chat_id: str,
         text: str,
         status: SendStatus,
-        llm_meta: Optional[dict] = None,
+        llm_meta: dict | None = None,
         author: Author = Author.agent,
-        image_ids: Optional[list[str]] = None,
+        image_ids: list[str] | None = None,
     ) -> None: ...
 
     async def load_history(self, chat_id: str, limit: int = HISTORY_LIMIT) -> list[dict]: ...
 
-    async def load_dialog_state(
-        self, chat_id: str
-    ) -> tuple[DialogConcessionState, TouchState]: ...
+    async def load_dialog_state(self, chat_id: str) -> tuple[DialogConcessionState, TouchState]: ...
 
     async def save_dialog_state(
         self, chat_id: str, concession: DialogConcessionState, touch: TouchState
@@ -105,7 +103,7 @@ class DialogStore(Protocol):
     # Только чтение, БЕЗ создания чата: нужен `OutboundGate`, чтобы решить,
     # имеем ли мы право писать в этот чат. `get_or_create_chat` тут не
     # годится — проверка перед отправкой не должна заводить строку в базе.
-    async def get_chat_item_id(self, chat_id: str) -> Optional[str]: ...
+    async def get_chat_item_id(self, chat_id: str) -> str | None: ...
 
     async def get_chat_manual_hold(self, chat_id: str) -> bool: ...
 
@@ -113,22 +111,23 @@ class DialogStore(Protocol):
 
     async def was_sent_by_us(self, chat_id: str, text: str) -> bool: ...
 
-    async def last_incoming_at(self, chat_id: str) -> Optional[datetime]: ...
+    async def last_incoming_at(self, chat_id: str) -> datetime | None: ...
 
     async def has_any_messages(self, chat_id: str) -> bool: ...
 
     async def sent_image_ids(self, chat_id: str) -> set[str]: ...
 
-    async def get(self, item_id: str) -> Optional[ItemZoneRow]: ...
+    async def get(self, item_id: str) -> ItemZoneRow | None: ...
 
     async def log_concession(self, chat_id: str, event: ConcessionEvent) -> None: ...
 
-    async def count_concessions_today(self, now: Optional[datetime] = None) -> int: ...
+    async def count_concessions_today(self, now: datetime | None = None) -> int: ...
 
 
 # --------------------------------------------------------------------------
 # Реализация для тестов
 # --------------------------------------------------------------------------
+
 
 @dataclass
 class InMemoryDialogStore:
@@ -149,7 +148,7 @@ class InMemoryDialogStore:
     concession_log: list[dict] = field(default_factory=list)
 
     async def get_or_create_chat(
-        self, chat_id: str, item_id: Optional[str] = None, buyer_name: Optional[str] = None
+        self, chat_id: str, item_id: str | None = None, buyer_name: str | None = None
     ) -> ChatRecord:
         existing = self.chats.get(chat_id)
         if existing is not None:
@@ -177,14 +176,14 @@ class InMemoryDialogStore:
         self.chats[chat_id] = record
         return record
 
-    def _zone_for(self, item_id: Optional[str]) -> Optional[str]:
+    def _zone_for(self, item_id: str | None) -> str | None:
         if item_id is None:
             return None
         row = self.item_zones.get(item_id)
         return row.zone_id if row is not None else None
 
     async def save_incoming(
-        self, chat_id: str, text: str, avito_message_id: Optional[str] = None
+        self, chat_id: str, text: str, avito_message_id: str | None = None
     ) -> bool:
         if avito_message_id is not None:
             if avito_message_id in self.seen_message_ids:
@@ -202,7 +201,7 @@ class InMemoryDialogStore:
                 # ответ на входящее (касания, запасной ответ по таймауту
                 # уступки), проверяют AGENT_MIN_INBOUND_TS. В БД это
                 # серверный DEFAULT now(), здесь ставим руками.
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             }
         )
         return True
@@ -212,9 +211,9 @@ class InMemoryDialogStore:
         chat_id: str,
         text: str,
         status: SendStatus,
-        llm_meta: Optional[dict] = None,
+        llm_meta: dict | None = None,
         author: Author = Author.agent,
-        image_ids: Optional[list[str]] = None,
+        image_ids: list[str] | None = None,
     ) -> None:
         self.messages.setdefault(chat_id, []).append(
             {
@@ -230,7 +229,8 @@ class InMemoryDialogStore:
 
     async def load_history(self, chat_id: str, limit: int = HISTORY_LIMIT) -> list[dict]:
         rows = [
-            m for m in self.messages.get(chat_id, [])
+            m
+            for m in self.messages.get(chat_id, [])
             if m["status"] not in HISTORY_EXCLUDED_STATUSES
         ]
         return [
@@ -241,9 +241,7 @@ class InMemoryDialogStore:
             for m in rows[-limit:]
         ]
 
-    async def load_dialog_state(
-        self, chat_id: str
-    ) -> tuple[DialogConcessionState, TouchState]:
+    async def load_dialog_state(self, chat_id: str) -> tuple[DialogConcessionState, TouchState]:
         return (
             self.concessions.get(chat_id, DialogConcessionState()),
             self.touches.get(chat_id, TouchState()),
@@ -269,7 +267,7 @@ class InMemoryDialogStore:
             agent_reply_count=existing.agent_reply_count + 1,
         )
 
-    async def get_chat_item_id(self, chat_id: str) -> Optional[str]:
+    async def get_chat_item_id(self, chat_id: str) -> str | None:
         existing = self.chats.get(chat_id)
         return existing.item_id if existing else None
 
@@ -292,33 +290,41 @@ class InMemoryDialogStore:
         if not normalized:
             return False
         recent = [
-            m for m in self.messages.get(chat_id, [])
+            m
+            for m in self.messages.get(chat_id, [])
             if m["direction"] == Direction.outgoing and m["author"] == Author.agent
         ][-ECHO_LOOKBACK:]
         return any((m["text"] or "").strip() == normalized for m in recent)
 
     async def save_operator_message(
-        self, chat_id: str, text: str, avito_message_id: Optional[str] = None,
-        created_at: Optional[datetime] = None,
+        self,
+        chat_id: str,
+        text: str,
+        avito_message_id: str | None = None,
+        created_at: datetime | None = None,
     ) -> bool:
         if avito_message_id is not None:
             if avito_message_id in self.seen_message_ids:
                 return False
             self.seen_message_ids.add(avito_message_id)
-        self.messages.setdefault(chat_id, []).append({
-            "direction": Direction.outgoing,
-            "author": Author.operator,
-            "text": text,
-            "status": SendStatus.sent,
-            "avito_message_id": avito_message_id,
-            "llm_meta": None,
-            "image_ids": None,
-            "created_at": created_at or datetime.now(timezone.utc),
-        })
+        self.messages.setdefault(chat_id, []).append(
+            {
+                "direction": Direction.outgoing,
+                "author": Author.operator,
+                "text": text,
+                "status": SendStatus.sent,
+                "avito_message_id": avito_message_id,
+                "llm_meta": None,
+                "image_ids": None,
+                "created_at": created_at or datetime.now(UTC),
+            }
+        )
         return True
 
     async def clients_waiting_in_takeover(
-        self, older_than: datetime, not_before: datetime,
+        self,
+        older_than: datetime,
+        not_before: datetime,
     ) -> list[tuple[str, str]]:
         waiting = []
         for chat_id, chat in self.chats.items():
@@ -327,8 +333,10 @@ class InMemoryDialogStore:
             tail = []
             # как в SQL: по времени, а не по порядку вставки (задним числом
             # подтянутый текст менеджера встаёт на своё место)
-            far = datetime.max.replace(tzinfo=timezone.utc)
-            ordered = sorted(self.messages.get(chat_id, []), key=lambda m: m.get("created_at") or far)
+            far = datetime.max.replace(tzinfo=UTC)
+            ordered = sorted(
+                self.messages.get(chat_id, []), key=lambda m: m.get("created_at") or far
+            )
             for m in reversed(ordered):
                 if m["direction"] != Direction.incoming:
                     break
@@ -352,22 +360,21 @@ class InMemoryDialogStore:
             for image_id in (m.get("image_ids") or [])
         }
 
-    async def last_incoming_at(self, chat_id: str) -> Optional[datetime]:
+    async def last_incoming_at(self, chat_id: str) -> datetime | None:
         stamps = [
-            m["created_at"] for m in self.messages.get(chat_id, [])
+            m["created_at"]
+            for m in self.messages.get(chat_id, [])
             if m["direction"] == Direction.incoming and m.get("created_at") is not None
         ]
         return max(stamps) if stamps else None
 
-    async def get(self, item_id: str) -> Optional[ItemZoneRow]:
+    async def get(self, item_id: str) -> ItemZoneRow | None:
         return self.item_zones.get(item_id)
 
     async def log_concession(self, chat_id: str, event: ConcessionEvent) -> None:
-        self.concession_log.append(
-            {"chat_id": chat_id, "event": event, "at": datetime.now(timezone.utc)}
-        )
+        self.concession_log.append({"chat_id": chat_id, "event": event, "at": datetime.now(UTC)})
 
-    async def count_concessions_today(self, now: Optional[datetime] = None) -> int:
+    async def count_concessions_today(self, now: datetime | None = None) -> int:
         today_msk = (now or datetime.now(MOSCOW_TZ)).astimezone(MOSCOW_TZ).date()
         return sum(
             1
@@ -380,7 +387,8 @@ class InMemoryDialogStore:
 # Реализация для прода
 # --------------------------------------------------------------------------
 
-def _is_certificate(title: Optional[str]) -> bool:
+
+def _is_certificate(title: str | None) -> bool:
     return "сертификат" in (title or "").lower()
 
 
@@ -394,7 +402,7 @@ class SqlAlchemyDialogStore:
         self._session_factory = session_factory
 
     async def get_or_create_chat(
-        self, chat_id: str, item_id: Optional[str] = None, buyer_name: Optional[str] = None
+        self, chat_id: str, item_id: str | None = None, buyer_name: str | None = None
     ) -> ChatRecord:
         from sqlalchemy import select
 
@@ -425,7 +433,7 @@ class SqlAlchemyDialogStore:
                 if row is not None and row.zone_id:
                     chat.zone_id = row.zone_id
 
-            chat.last_msg_at = datetime.now(timezone.utc)
+            chat.last_msg_at = datetime.now(UTC)
             await session.commit()
 
             return ChatRecord(
@@ -440,7 +448,7 @@ class SqlAlchemyDialogStore:
             )
 
     async def save_incoming(
-        self, chat_id: str, text: str, avito_message_id: Optional[str] = None
+        self, chat_id: str, text: str, avito_message_id: str | None = None
     ) -> bool:
         """False означает «это сообщение уже сохранено» — второй рубеж
         дедупликации после Redis (`app/webhooks.py`). Именно уникальный
@@ -478,9 +486,9 @@ class SqlAlchemyDialogStore:
         chat_id: str,
         text: str,
         status: SendStatus,
-        llm_meta: Optional[dict] = None,
+        llm_meta: dict | None = None,
         author: Author = Author.agent,
-        image_ids: Optional[list[str]] = None,
+        image_ids: list[str] | None = None,
     ) -> None:
         from app.db.models import Message
 
@@ -505,19 +513,23 @@ class SqlAlchemyDialogStore:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(Message)
-                    .where(
-                        Message.chat_id == chat_id,
-                        Message.status.not_in(HISTORY_EXCLUDED_STATUSES),
+                (
+                    await session.execute(
+                        select(Message)
+                        .where(
+                            Message.chat_id == chat_id,
+                            Message.status.not_in(HISTORY_EXCLUDED_STATUSES),
+                        )
+                        # Последние N по времени, потом разворот: ORDER BY ... DESC
+                        # LIMIT N — единственный способ взять «хвост» диалога, не
+                        # вычитывая его целиком.
+                        .order_by(Message.created_at.desc(), Message.id.desc())
+                        .limit(limit)
                     )
-                    # Последние N по времени, потом разворот: ORDER BY ... DESC
-                    # LIMIT N — единственный способ взять «хвост» диалога, не
-                    # вычитывая его целиком.
-                    .order_by(Message.created_at.desc(), Message.id.desc())
-                    .limit(limit)
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
         return [
             {
@@ -528,18 +540,14 @@ class SqlAlchemyDialogStore:
             if (row.text or "").strip()
         ]
 
-    async def load_dialog_state(
-        self, chat_id: str
-    ) -> tuple[DialogConcessionState, TouchState]:
+    async def load_dialog_state(self, chat_id: str) -> tuple[DialogConcessionState, TouchState]:
         from sqlalchemy import select
 
         from app.db.models import DialogState
 
         async with self._session_factory() as session:
             row = (
-                await session.execute(
-                    select(DialogState).where(DialogState.chat_id == chat_id)
-                )
+                await session.execute(select(DialogState).where(DialogState.chat_id == chat_id))
             ).scalar_one_or_none()
 
         if row is None:
@@ -563,9 +571,7 @@ class SqlAlchemyDialogStore:
 
         async with self._session_factory() as session:
             row = (
-                await session.execute(
-                    select(DialogState).where(DialogState.chat_id == chat_id)
-                )
+                await session.execute(select(DialogState).where(DialogState.chat_id == chat_id))
             ).scalar_one_or_none()
             if row is None:
                 row = DialogState(chat_id=chat_id)
@@ -594,7 +600,7 @@ class SqlAlchemyDialogStore:
             chat.agent_reply_count = (chat.agent_reply_count or 0) + 1
             await session.commit()
 
-    async def get_chat_item_id(self, chat_id: str) -> Optional[str]:
+    async def get_chat_item_id(self, chat_id: str) -> str | None:
         """Объявление чата — для `OutboundGate` перед отправкой клиенту.
 
         Отдельный SELECT, а не `get_or_create_chat`: проверка права писать
@@ -607,9 +613,7 @@ class SqlAlchemyDialogStore:
 
         async with self._session_factory() as session:
             return (
-                await session.execute(
-                    select(Chat.item_id).where(Chat.chat_id == chat_id)
-                )
+                await session.execute(select(Chat.item_id).where(Chat.chat_id == chat_id))
             ).scalar_one_or_none()
 
     async def set_chat_manual_hold(self, chat_id: str, value: bool) -> bool:
@@ -639,13 +643,12 @@ class SqlAlchemyDialogStore:
     async def sent_images_recently(self, chat_id: str, minutes: int = 60) -> bool:
         """Отправляли ли мы картинки в этот чат за последние `minutes`
         (запасной путь к метке в Redis, см. MessagePipeline._mark_own_images)."""
-        from datetime import timedelta
 
         from sqlalchemy import func, select
 
         from app.db.models import Message
 
-        since = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        since = datetime.now(UTC) - timedelta(minutes=minutes)
         async with self._session_factory() as session:
             count = (
                 await session.execute(
@@ -690,23 +693,30 @@ class SqlAlchemyDialogStore:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(Message.text)
-                    .where(
-                        Message.chat_id == chat_id,
-                        Message.direction == Direction.outgoing,
-                        Message.author == Author.agent,
+                (
+                    await session.execute(
+                        select(Message.text)
+                        .where(
+                            Message.chat_id == chat_id,
+                            Message.direction == Direction.outgoing,
+                            Message.author == Author.agent,
+                        )
+                        .order_by(Message.id.desc())
+                        .limit(ECHO_LOOKBACK)
                     )
-                    .order_by(Message.id.desc())
-                    .limit(ECHO_LOOKBACK)
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
         return any((row or "").strip() == normalized for row in rows)
 
     async def save_operator_message(
-        self, chat_id: str, text: str, avito_message_id: Optional[str] = None,
-        created_at: Optional[datetime] = None,
+        self,
+        chat_id: str,
+        text: str,
+        avito_message_id: str | None = None,
+        created_at: datetime | None = None,
     ) -> bool:
         """Текст живого менеджера - в историю диалога (аудит 30.10).
 
@@ -741,7 +751,9 @@ class SqlAlchemyDialogStore:
         return True
 
     async def clients_waiting_in_takeover(
-        self, older_than: datetime, not_before: datetime,
+        self,
+        older_than: datetime,
+        not_before: datetime,
     ) -> list[tuple[str, str]]:
         """Чаты «у менеджера», где клиент написал и ему никто не ответил.
 
@@ -812,15 +824,19 @@ class SqlAlchemyDialogStore:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(Message.image_ids).where(
-                        Message.chat_id == chat_id,
-                        Message.direction == Direction.outgoing,
-                        Message.status == SendStatus.sent,
-                        Message.image_ids.is_not(None),
+                (
+                    await session.execute(
+                        select(Message.image_ids).where(
+                            Message.chat_id == chat_id,
+                            Message.direction == Direction.outgoing,
+                            Message.status == SendStatus.sent,
+                            Message.image_ids.is_not(None),
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         return {image_id for row in rows for image_id in (row or [])}
 
     async def has_any_messages(self, chat_id: str) -> bool:
@@ -839,12 +855,10 @@ class SqlAlchemyDialogStore:
 
         async with self._session_factory() as session:
             return (
-                await session.execute(
-                    select(Message.id).where(Message.chat_id == chat_id).limit(1)
-                )
+                await session.execute(select(Message.id).where(Message.chat_id == chat_id).limit(1))
             ).scalar_one_or_none() is not None
 
-    async def last_incoming_at(self, chat_id: str) -> Optional[datetime]:
+    async def last_incoming_at(self, chat_id: str) -> datetime | None:
         """Когда клиент писал в этот чат в последний раз.
 
         Нужен путям, которые отправляют НЕ в ответ на входящее, а по
@@ -883,13 +897,11 @@ class SqlAlchemyDialogStore:
 
         async with self._session_factory() as session:
             value = (
-                await session.execute(
-                    select(Chat.manual_hold).where(Chat.chat_id == chat_id)
-                )
+                await session.execute(select(Chat.manual_hold).where(Chat.chat_id == chat_id))
             ).scalar_one_or_none()
             return bool(value)
 
-    async def get(self, item_id: str) -> Optional[ItemZoneRow]:
+    async def get(self, item_id: str) -> ItemZoneRow | None:
         """Реализация `ItemZoneLookup` — какому объявлению какая зона
         соответствует (app/agent/listing_context.py). Живёт здесь, а не
         отдельным классом: это тот же самый доступ к тем же таблицам, и
@@ -900,9 +912,7 @@ class SqlAlchemyDialogStore:
 
         async with self._session_factory() as session:
             row = (
-                await session.execute(
-                    select(ItemZoneMap).where(ItemZoneMap.item_id == item_id)
-                )
+                await session.execute(select(ItemZoneMap).where(ItemZoneMap.item_id == item_id))
             ).scalar_one_or_none()
 
         if row is None or (not row.zone_id and not row.category):
@@ -921,10 +931,13 @@ class SqlAlchemyDialogStore:
             if zone_id is None and category is None:
                 return None
             return ItemZoneRow(
-                zone_id=zone_id, category=category, certificate=_is_certificate(title),
+                zone_id=zone_id,
+                category=category,
+                certificate=_is_certificate(title),
             )
         return ItemZoneRow(
-            zone_id=row.zone_id, category=row.category,
+            zone_id=row.zone_id,
+            category=row.category,
             certificate=_is_certificate(row.title),
         )
 
@@ -958,7 +971,7 @@ class SqlAlchemyDialogStore:
             )
             await session.commit()
 
-    async def count_concessions_today(self, now: Optional[datetime] = None) -> int:
+    async def count_concessions_today(self, now: datetime | None = None) -> int:
         """Только реально ВЫДАННЫЕ (allowed=True) — «требует одобрения, но
         ещё не решено» и «оператор отклонил» в это число не входят. Точность
         ограничена: строка пишется в момент, когда ход дошёл до модерации, а
@@ -986,7 +999,9 @@ class SqlAlchemyDialogStore:
         async with self._session_factory() as session:
             count = (
                 await session.execute(
-                    select(func.count()).select_from(ConcessionLog).where(
+                    select(func.count())
+                    .select_from(ConcessionLog)
+                    .where(
                         ConcessionLog.allowed.is_(True),
                         ConcessionLog.created_at >= today_start_msk,
                     )

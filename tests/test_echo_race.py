@@ -22,7 +22,7 @@ async def test_the_gate_remembers_the_text_before_sending():
 async def test_an_echo_that_beats_the_database_is_not_a_takeover():
     pipeline, store, agent, ops = _build()
     await store.get_or_create_chat("chat-1")
-    echo_registry.expect("chat-1", "Отправляю фото бани 🍃")   # отправлено, в базе ещё нет
+    echo_registry.expect("chat-1", "Отправляю фото бани 🍃")  # отправлено, в базе ещё нет
 
     await pipeline.handle_message(_payload(author_id=OUR_USER_ID, text="Отправляю фото бани 🍃"))
     await _settle()
@@ -35,7 +35,9 @@ async def test_a_real_manager_message_is_still_a_takeover():
     await store.get_or_create_chat("chat-1")
     echo_registry.expect("chat-1", "Отправляю фото бани 🍃")
 
-    await pipeline.handle_message(_payload(author_id=OUR_USER_ID, text="Мы забронировали с вами баню."))
+    await pipeline.handle_message(
+        _payload(author_id=OUR_USER_ID, text="Мы забронировали с вами баню.")
+    )
     await _settle()
 
     assert (await ops.store.get_flags("chat-1")).is_human_takeover is True

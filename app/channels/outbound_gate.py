@@ -33,16 +33,17 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from app.channels.daily_limit import DailyLimitResult
 
 logger = logging.getLogger("parmangal.outbound")
 
 # chat_id -> item_id объявления (или None, если чат не по объявлению).
-ItemIdLookup = Callable[[str], Awaitable[Optional[str]]]
+ItemIdLookup = Callable[[str], Awaitable[str | None]]
 # chat_id -> стоит ли на чате ручной hold (app/db/models.py:Chat.manual_hold).
 ManualHoldLookup = Callable[[str], Awaitable[bool]]
 # chat_id -> состояние перехвата чата человеком (см. TakeoverState ниже).
@@ -68,12 +69,10 @@ class TakeoverState:
     """
 
     is_human_takeover: bool = False
-    takeover_at: Optional[datetime] = None
+    takeover_at: datetime | None = None
 
 
-def takeover_blocks(
-    state: TakeoverState, settings: Any, now: Optional[datetime] = None
-) -> bool:
+def takeover_blocks(state: TakeoverState, settings: Any, now: datetime | None = None) -> bool:
     """ЕДИНСТВЕННОЕ определение правила «в чате человек, агент молчит».
 
     Зовётся из двух мест и обязано оставаться одной функцией: гейт применяет
@@ -113,13 +112,13 @@ def takeover_blocks(
         # SQLite в тестах отдаёт naive datetime; в Postgres колонка aware.
         # Считать naive за локальное время — способ получить окно длиной в
         # часовой пояс.
-        taken_at = taken_at.replace(tzinfo=timezone.utc)
-    now = now or datetime.now(timezone.utc)
+        taken_at = taken_at.replace(tzinfo=UTC)
+    now = now or datetime.now(UTC)
     return now - taken_at < timedelta(minutes=minutes)
 
 
 async def is_listing_allowed(
-    item_id: Optional[str], settings: Any, *, scope_resolver: Any = None
+    item_id: str | None, settings: Any, *, scope_resolver: Any = None
 ) -> bool:
     """Единственное определение правила «по этому объявлению можно писать».
 
@@ -234,12 +233,12 @@ class OutboundGate:
         self,
         client: Any,
         settings: Any,
-        item_id_lookup: Optional[ItemIdLookup] = None,
-        manual_hold_lookup: Optional[ManualHoldLookup] = None,
-        takeover_lookup: Optional[TakeoverLookup] = None,
-        kill_switch_lookup: Optional[KillSwitchLookup] = None,
-        daily_limit_check: Optional[DailyLimitCheck] = None,
-        daily_limit_alert: Optional[DailyLimitAlert] = None,
+        item_id_lookup: ItemIdLookup | None = None,
+        manual_hold_lookup: ManualHoldLookup | None = None,
+        takeover_lookup: TakeoverLookup | None = None,
+        kill_switch_lookup: KillSwitchLookup | None = None,
+        daily_limit_check: DailyLimitCheck | None = None,
+        daily_limit_alert: DailyLimitAlert | None = None,
         item_scope_resolver: Any = None,
     ):
         self._client = client
@@ -400,13 +399,13 @@ class OutboundGate:
 
         if self._daily_limit_check is not None:
             result = await self._daily_limit_check()
-            if (result.just_exceeded or result.redis_unavailable) and self._daily_limit_alert is not None:
+            if (
+                result.just_exceeded or result.redis_unavailable
+            ) and self._daily_limit_alert is not None:
                 try:
                     await self._daily_limit_alert(result)
                 except Exception:
-                    logger.exception(
-                        "outbound: не удалось отправить алерт о суточном лимите"
-                    )
+                    logger.exception("outbound: не удалось отправить алерт о суточном лимите")
             if result.redis_unavailable:
                 logger.error(
                     "outbound: заблокировано — суточный лимит не проверяется, Redis недоступен",
@@ -418,12 +417,11 @@ class OutboundGate:
             if not result.allowed:
                 logger.warning(
                     "outbound: заблокировано — суточный лимит исчерпан (%d/%d)",
-                    result.count, result.limit,
+                    result.count,
+                    result.limit,
                     extra={"chat_id": chat_id},
                 )
-                raise DailyLimitExceeded(
-                    f"суточный лимит исходящих ({result.limit}) исчерпан"
-                )
+                raise DailyLimitExceeded(f"суточный лимит исходящих ({result.limit}) исчерпан")
 
     async def send_message(self, chat_id: str, text: str) -> dict:
         await self._require_allowed(chat_id)

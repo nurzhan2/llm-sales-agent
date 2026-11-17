@@ -36,7 +36,7 @@ import argparse
 import asyncio
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 async def collect(hours: int) -> dict:
@@ -47,28 +47,45 @@ async def collect(hours: int) -> dict:
     from app.db.session import get_sessionmaker
 
     sm = get_sessionmaker()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     since = now - timedelta(hours=hours)
 
     async with sm() as s:
         zmap = {r.item_id: r for r in (await s.execute(select(ItemZoneMap))).scalars()}
-        out = (await s.execute(
-            select(Message)
-            .where(Message.direction == Direction.outgoing, Message.created_at >= since)
-            .order_by(Message.created_at)
-        )).scalars().all()
-        inc = (await s.execute(
-            select(Message)
-            .where(Message.direction == Direction.incoming, Message.created_at >= since)
-            .order_by(Message.created_at)
-        )).scalars().all()
+        out = (
+            (
+                await s.execute(
+                    select(Message)
+                    .where(Message.direction == Direction.outgoing, Message.created_at >= since)
+                    .order_by(Message.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        inc = (
+            (
+                await s.execute(
+                    select(Message)
+                    .where(Message.direction == Direction.incoming, Message.created_at >= since)
+                    .order_by(Message.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
         chat_ids = {m.chat_id for m in out} | {m.chat_id for m in inc}
-        chats = {c.chat_id: c for c in (await s.execute(
-            select(Chat).where(Chat.chat_id.in_(chat_ids or {""}))
-        )).scalars()}
-        holds = (await s.execute(
-            select(func.count()).select_from(Chat).where(Chat.manual_hold.is_(True))
-        )).scalar()
+        chats = {
+            c.chat_id: c
+            for c in (
+                await s.execute(select(Chat).where(Chat.chat_id.in_(chat_ids or {""})))
+            ).scalars()
+        }
+        holds = (
+            await s.execute(
+                select(func.count()).select_from(Chat).where(Chat.manual_hold.is_(True))
+            )
+        ).scalar()
         spent = await SqlAlchemyAdminQueries(sm).cost_spent_today()
 
     turns = []
@@ -92,26 +109,32 @@ async def collect(hours: int) -> dict:
             head = (name or "").split()[0].strip("«»")
             if head and head.lower() in (m.text or "").lower():
                 named.append(name)
-        turns.append({
-            "at": m.created_at,
-            "chat_id": m.chat_id,
-            "item_id": item_id,
-            "zone_hint": hint,
-            "text": " ".join((m.text or "").split()),
-            "tools": [c.get("tool") for c in trace],
-            "trace": trace,
-            "guard_rail": meta.get("guard_rail"),
-            "withheld": " ".join((meta.get("withheld_text") or "").split()),
-            "cost": meta.get("cost_rub"),
-            "alternatives_offered": offered,
-            "alternatives_named": named,
-        })
+        turns.append(
+            {
+                "at": m.created_at,
+                "chat_id": m.chat_id,
+                "item_id": item_id,
+                "zone_hint": hint,
+                "text": " ".join((m.text or "").split()),
+                "tools": [c.get("tool") for c in trace],
+                "trace": trace,
+                "guard_rail": meta.get("guard_rail"),
+                "withheld": " ".join((meta.get("withheld_text") or "").split()),
+                "cost": meta.get("cost_rub"),
+                "alternatives_offered": offered,
+                "alternatives_named": named,
+            }
+        )
 
     return {
-        "since": since, "now": now, "hours": hours,
-        "turns": turns, "incoming": len(inc),
+        "since": since,
+        "now": now,
+        "hours": hours,
+        "turns": turns,
+        "incoming": len(inc),
         "dialogs": len({t["chat_id"] for t in turns}),
-        "holds": holds, "spent_today": spent,
+        "holds": holds,
+        "spent_today": spent,
     }
 
 
@@ -142,8 +165,10 @@ def render(data: dict, brief: bool) -> str:
     if guards:
         lines += ["", "РУБЕЖИ:"]
         for t in guards:
-            lines += [f"  [{t['at']:%d.%m %H:%M}] {t['guard_rail']}",
-                      f"     задержано: {t['withheld'][:180]}"]
+            lines += [
+                f"  [{t['at']:%d.%m %H:%M}] {t['guard_rail']}",
+                f"     задержано: {t['withheld'][:180]}",
+            ]
     if brief:
         return "\n".join(lines)
 
@@ -151,8 +176,11 @@ def render(data: dict, brief: bool) -> str:
     for chat_id in dict.fromkeys(t["chat_id"] for t in turns):
         chat_turns = [t for t in turns if t["chat_id"] == chat_id]
         head = chat_turns[0]
-        lines += ["", f"### {chat_id}  | объявление {head['item_id'] or '—'} "
-                      f"| зона по карте: {head['zone_hint'] or 'НЕТ'}"]
+        lines += [
+            "",
+            f"### {chat_id}  | объявление {head['item_id'] or '—'} "
+            f"| зона по карте: {head['zone_hint'] or 'НЕТ'}",
+        ]
         for t in chat_turns:
             lines.append(f"  [{t['at']:%d.%m %H:%M}] {t['cost']} руб")
             for call in t["trace"]:
@@ -163,9 +191,11 @@ def render(data: dict, brief: bool) -> str:
             if not t["trace"]:
                 lines.append("      -> инструменты не вызывались")
             if t["alternatives_offered"]:
-                lines.append(f"      АЛЬТЕРНАТИВЫ: предложено "
-                             f"{t['alternatives_offered']}, названо клиенту "
-                             f"{t['alternatives_named'] or 'НИ ОДНОЙ'}")
+                lines.append(
+                    f"      АЛЬТЕРНАТИВЫ: предложено "
+                    f"{t['alternatives_offered']}, названо клиенту "
+                    f"{t['alternatives_named'] or 'НИ ОДНОЙ'}"
+                )
             if t["guard_rail"]:
                 lines.append(f"      РУБЕЖ: {t['guard_rail']}")
             lines.append(f"      ОТВЕТ: {t['text'][:400]}")

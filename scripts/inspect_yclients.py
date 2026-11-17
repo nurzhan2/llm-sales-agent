@@ -61,7 +61,7 @@ import asyncio
 import json
 import sys
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -76,7 +76,7 @@ REQUEST_DELAY_SECONDS = 0.3
 class Check:
     label: str
     path: str
-    params: Optional[dict] = None
+    params: dict | None = None
 
 
 def _build_checks(company_id: str) -> list[Check]:
@@ -225,11 +225,16 @@ async def check_slots(zone_id: str, day: str) -> int:
     await mapping.load()
     row = mapping.get(zone_id)
     if row is None:
-        print(f"Зона {zone_id} не связана в zone_service_map — занятость спрашивать не у кого.\n"
-              "Связать: python -m scripts.sync_yclients_services --apply", file=sys.stderr)
+        print(
+            f"Зона {zone_id} не связана в zone_service_map — занятость спрашивать не у кого.\n"
+            "Связать: python -m scripts.sync_yclients_services --apply",
+            file=sys.stderr,
+        )
         return 1
-    print(f"zone={zone_id}  staff_id={row.get('staff_id')}  "
-          f"company_id={row.get('company_id') or settings.yclients_company_id}  date={day}")
+    print(
+        f"zone={zone_id}  staff_id={row.get('staff_id')}  "
+        f"company_id={row.get('company_id') or settings.yclients_company_id}  date={day}"
+    )
 
     headers = {
         ep.AUTH_HEADER: ep.AUTH_TEMPLATE.format(
@@ -257,8 +262,10 @@ async def check_slots(zone_id: str, day: str) -> int:
     print(f"  свободные времена: {', '.join(availability.free_slots) or '—'}")
     print(f"  причина: {availability.reason or '—'}")
     if availability.status.value == "unknown":
-        print("\n  UNKNOWN означает, что ответ не удалось разобрать или запрос не удался —\n"
-              "  сырой ответ выше показывает, что именно пришло.")
+        print(
+            "\n  UNKNOWN означает, что ответ не удалось разобрать или запрос не удался —\n"
+            "  сырой ответ выше показывает, что именно пришло."
+        )
     return 0
 
 

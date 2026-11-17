@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date as DateType, time as TimeType
+from datetime import date as DateType
+from datetime import time as TimeType
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -49,7 +50,7 @@ SLOTS_CACHE_TTL = 60
 _SEANCE_LIST_KEYS = ("seances", "times", "slots", "data")
 
 
-def _parse_seances(data: Any) -> Optional[tuple[str, ...]]:
+def _parse_seances(data: Any) -> tuple[str, ...] | None:
     """Времена сеансов из data. None — формат не распознан (НЕ «пусто»).
 
     Пустой кортеж и None различаются намеренно: первое значит «ответ понят,
@@ -80,7 +81,7 @@ def _parse_seances(data: Any) -> Optional[tuple[str, ...]]:
     return tuple(slots)
 
 
-def _parse_seance_seconds(data: Any) -> Optional[int]:
+def _parse_seance_seconds(data: Any) -> int | None:
     """seance_length из book_times — у одного сотрудника-зоны он одинаков
     для всех сеансов. None — поля нет (другая форма ответа)."""
     if isinstance(data, dict):
@@ -98,7 +99,7 @@ def _parse_seance_seconds(data: Any) -> Optional[int]:
     return max(lengths) if lengths else None
 
 
-def _to_minutes(value: str) -> Optional[int]:
+def _to_minutes(value: str) -> int | None:
     """«9:00» и «09:00» — одно и то же время. YCLIENTS отдаёт часы БЕЗ
     ведущего нуля («9:00», живой лог 2026-09-23), а сравнение шло со
     strftime('%H:%M') = «09:00» — любое утреннее время до 10:00 молча
@@ -120,8 +121,8 @@ DAY_CLOSE_MINUTES = 23 * 60
 def interval_is_free(
     free_slots: tuple[str, ...],
     start_time: TimeType,
-    hours: Optional[int],
-    seance_seconds: Optional[int] = None,
+    hours: int | None,
+    seance_seconds: int | None = None,
     close_minutes: int = DAY_CLOSE_MINUTES,
 ) -> bool:
     """Свободен ли ВЕСЬ интервал [start, start+hours), а не одно время начала.
@@ -146,7 +147,7 @@ def interval_is_free(
 
     length = (seance_seconds or 0) // 60
     ordered = sorted(free)
-    gaps = [b - a for a, b in zip(ordered, ordered[1:]) if b > a]
+    gaps = [b - a for a, b in zip(ordered, ordered[1:], strict=False) if b > a]
     grid = min(gaps) if gaps else 30
     # У book_times два разных смысла свободного t, и они зависят от
     # настройки сотрудника-зоны в YCLIENTS:
@@ -188,7 +189,7 @@ def _hhmm(minutes: int) -> str:
 
 def busy_windows(
     free_slots: tuple[str, ...],
-    seance_seconds: Optional[int] = None,
+    seance_seconds: int | None = None,
     *,
     include_morning: bool = True,
     open_minutes: int = DAY_OPEN_MINUTES,
@@ -212,7 +213,7 @@ def busy_windows(
     free = sorted({m for m in (_to_minutes(s) for s in free_slots) if m is not None})
     if not free:
         return [f"{_hhmm(open_minutes)}–{_hhmm(close_minutes)}"]
-    gaps = [b - a for a, b in zip(free, free[1:]) if b > a]
+    gaps = [b - a for a, b in zip(free, free[1:], strict=False) if b > a]
     grid = min(gaps) if gaps else 30
     length = (seance_seconds or 0) // 60
     starts_to_close = length <= 0 or any(t + length > close_minutes for t in free)
@@ -224,7 +225,7 @@ def busy_windows(
     windows: list[tuple[int, int]] = []
     if include_morning and free[0] > open_minutes:
         windows.append((open_minutes, free[0]))
-    for a, b in zip(free, free[1:]):
+    for a, b in zip(free, free[1:], strict=False):
         if b - a > grid:
             windows.append((a + step, b))
     last_possible = close_minutes if starts_to_close else close_minutes - length
@@ -234,7 +235,7 @@ def busy_windows(
 
 
 def _slots_to_availability(
-    slots: tuple[str, ...], seance_seconds: Optional[int] = None
+    slots: tuple[str, ...], seance_seconds: int | None = None
 ) -> Availability:
     """Три состояния, а не два: есть сеансы -> FREE, нет -> BUSY.
 
@@ -261,8 +262,8 @@ class YClientsProvider:
         partner_token: str = "",
         user_token: str = "",
         company_id: str = "",
-        mapping: Optional[InMemoryZoneMapping] = None,
-        client: Optional[httpx.AsyncClient] = None,
+        mapping: InMemoryZoneMapping | None = None,
+        client: httpx.AsyncClient | None = None,
         redis: Any = None,
         timeout: float = 15.0,
     ):
@@ -284,7 +285,7 @@ class YClientsProvider:
             "Accept": ep.ACCEPT_HEADER,
         }
 
-    async def _request(self, spec: tuple[str, str], path: str, **kwargs) -> Optional[dict]:
+    async def _request(self, spec: tuple[str, str], path: str, **kwargs) -> dict | None:
         """Возвращает data из конверта или None при любом сбое.
 
         401/403 ловится отдельно и пишется в лог понятной строкой, а не
@@ -331,7 +332,9 @@ class YClientsProvider:
         # персональных данных: book_times/book_services возвращают время и
         # услуги, не клиентов. Обрезано, чтобы один ответ не занял пол-лога.
         logger.info(
-            "yclients %s -> %s", path, json.dumps(payload, ensure_ascii=False)[:1500],
+            "yclients %s -> %s",
+            path,
+            json.dumps(payload, ensure_ascii=False)[:1500],
         )
 
         if isinstance(payload, dict) and payload.get("success") is False:
@@ -347,9 +350,7 @@ class YClientsProvider:
     async def get_services(self) -> list[Service]:
         if not ep.SPEC_VERIFIED:
             return []
-        data = await self._request(
-            ep.SERVICES, ep.SERVICES[1].format(company_id=self.company_id)
-        )
+        data = await self._request(ep.SERVICES, ep.SERVICES[1].format(company_id=self.company_id))
         # По официальной документации book_services (developers.yclients.com,
         # раздел "Онлайн-запись" -> "Получить список услуг доступных для
         # бронирования", проверено 2026-08-24) data — ОБЪЕКТ вида
@@ -394,7 +395,9 @@ class YClientsProvider:
         if not isinstance(data, list):
             return []
         return [
-            Staff(staff_id=str(item.get("id")), name=str(item.get("name") or item.get("title") or ""))
+            Staff(
+                staff_id=str(item.get("id")), name=str(item.get("name") or item.get("title") or "")
+            )
             for item in data
         ]
 
@@ -411,18 +414,20 @@ class YClientsProvider:
     COMPOSITE_DAY = (TimeType(10, 0), 12)
 
     async def _composite_availability(
-        self, zone_id: str, date: DateType, start_time: Optional[TimeType],
-        hours: Optional[int],
+        self,
+        zone_id: str,
+        date: DateType,
+        start_time: TimeType | None,
+        hours: int | None,
     ) -> Availability:
-        start, length = (
-            (start_time, hours) if start_time is not None else self.COMPOSITE_DAY
-        )
-        unknown: Optional[Availability] = None
+        start, length = (start_time, hours) if start_time is not None else self.COMPOSITE_DAY
+        unknown: Availability | None = None
         for part in self.COMPOSITE_ZONES[zone_id]:
             got = await self.check_availability(part, date, start, length)
             if got.status == AvailabilityStatus.FREE:
                 return Availability(
-                    AvailabilityStatus.FREE, free_slots=got.free_slots,
+                    AvailabilityStatus.FREE,
+                    free_slots=got.free_slots,
                     seance_seconds=got.seance_seconds,
                     reason=f"свободна {part} — домик ставится на неё",
                 )
@@ -436,8 +441,11 @@ class YClientsProvider:
         )
 
     async def check_availability(
-        self, zone_id: str, date: DateType, start_time: Optional[TimeType] = None,
-        hours: Optional[int] = None,
+        self,
+        zone_id: str,
+        date: DateType,
+        start_time: TimeType | None = None,
+        hours: int | None = None,
     ) -> Availability:
         if zone_id in self.COMPOSITE_ZONES:
             return await self._composite_availability(zone_id, date, start_time, hours)
@@ -450,9 +458,7 @@ class YClientsProvider:
                 reason=f"зона {zone_id} не заведена в системе бронирования",
             )
         if not ep.SPEC_VERIFIED:
-            return Availability(
-                AvailabilityStatus.UNKNOWN, reason="схема YCLIENTS не подтверждена"
-            )
+            return Availability(AvailabilityStatus.UNKNOWN, reason="схема YCLIENTS не подтверждена")
 
         slots = await self.get_free_slots(zone_id, date)
         if not slots.is_known:
@@ -469,9 +475,7 @@ class YClientsProvider:
             )
         return Availability(
             AvailabilityStatus.BUSY,
-            reason=(
-                f"на {wanted} на {hours} ч занято" if hours else f"на {wanted} занято"
-            ),
+            reason=(f"на {wanted} на {hours} ч занято" if hours else f"на {wanted} занято"),
             free_slots=slots.free_slots,
             seance_seconds=slots.seance_seconds,
         )
@@ -481,13 +485,9 @@ class YClientsProvider:
             return await self._composite_availability(zone_id, date, None, None)
         row = self.mapping.get(zone_id)
         if row is None:
-            return Availability(
-                AvailabilityStatus.UNKNOWN, reason=f"зона {zone_id} не заведена"
-            )
+            return Availability(AvailabilityStatus.UNKNOWN, reason=f"зона {zone_id} не заведена")
         if not ep.SPEC_VERIFIED:
-            return Availability(
-                AvailabilityStatus.UNKNOWN, reason="схема YCLIENTS не подтверждена"
-            )
+            return Availability(AvailabilityStatus.UNKNOWN, reason="схема YCLIENTS не подтверждена")
 
         cached = await self._cache_get(zone_id, date)
         if cached is not None:
@@ -496,9 +496,7 @@ class YClientsProvider:
             # Формат кеша: {"slots": [...], "len": seance_seconds}; голый
             # список — прежний формат (живёт максимум SLOTS_CACHE_TTL).
             if isinstance(cached, dict):
-                return _slots_to_availability(
-                    tuple(cached.get("slots") or ()), cached.get("len")
-                )
+                return _slots_to_availability(tuple(cached.get("slots") or ()), cached.get("len"))
             return _slots_to_availability(tuple(cached))
 
         data = await self._request(
@@ -522,7 +520,8 @@ class YClientsProvider:
             # нет» — второе агент озвучит клиенту как «занято».
             logger.warning(
                 "yclients book_times: не удалось разобрать data (%s) — %s",
-                type(data).__name__, json.dumps(data, ensure_ascii=False)[:500],
+                type(data).__name__,
+                json.dumps(data, ensure_ascii=False)[:500],
             )
             return Availability(AvailabilityStatus.UNKNOWN, reason="неизвестный формат ответа")
 
@@ -532,7 +531,7 @@ class YClientsProvider:
 
     # -- кеш ---------------------------------------------------------------
 
-    async def _cache_get(self, zone_id: str, date: DateType) -> Optional[list]:
+    async def _cache_get(self, zone_id: str, date: DateType) -> list | None:
         if self.redis is None:
             return None
         raw = await self.redis.get(SLOTS_CACHE_KEY.format(zone_id=zone_id, date=date.isoformat()))
@@ -557,9 +556,7 @@ class YClientsProvider:
         свободным."""
         if self.redis is None:
             return
-        await self.redis.delete(
-            SLOTS_CACHE_KEY.format(zone_id=zone_id, date=date.isoformat())
-        )
+        await self.redis.delete(SLOTS_CACHE_KEY.format(zone_id=zone_id, date=date.isoformat()))
 
     # -- бронирование ------------------------------------------------------
 
@@ -621,9 +618,7 @@ class YClientsProvider:
 
     # -- оплата ------------------------------------------------------------
 
-    async def create_payment_link(
-        self, booking_id: str, amount: Decimal
-    ) -> Optional[PaymentLink]:
+    async def create_payment_link(self, booking_id: str, amount: Decimal) -> PaymentLink | None:
         """Ссылка ВСЕГДА привязана к брони и сумме.
 
         Если эндпоинта нет (PAYMENT_LINK_SUPPORTED=False) — возвращаем None, и

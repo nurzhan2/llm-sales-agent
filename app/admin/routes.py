@@ -13,7 +13,7 @@ import io
 import secrets
 from decimal import Decimal
 from html import escape
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -124,7 +124,9 @@ async def readiness(request: Request, _: str = Depends(require_admin)) -> HTMLRe
     body.append("<h1>Общие блокеры</h1>")
     body.append("<p class='note'>Эти вопросы гейтят все зоны одинаково.</p><table>")
     for question in globals_:
-        body.append(f"<tr><td><span class='q'>{question.id}</span></td><td>{question.text}</td></tr>")
+        body.append(
+            f"<tr><td><span class='q'>{question.id}</span></td><td>{question.text}</td></tr>"
+        )
     body.append("</table>")
     body.append(f"<p class='note'>Отвечено вопросов: {len(answered)}.</p>")
     return _page("Готовность зон", "".join(body))
@@ -317,7 +319,11 @@ async def dialogs(request: Request, _: str = Depends(require_admin)) -> HTMLResp
         # диагностическая, и уронить её 500-й из-за формата даты — потерять
         # ровно тот инструмент, ради которого её и открыли.
         last = row.get("last_msg_at")
-        last_text = last.strftime("%Y-%m-%d %H:%M") if hasattr(last, "strftime") else (str(last) if last else "—")
+        last_text = (
+            last.strftime("%Y-%m-%d %H:%M")
+            if hasattr(last, "strftime")
+            else (str(last) if last else "—")
+        )
         filter_cell = await _filter_cell(row, settings, scope_resolver)
         body.append(
             f"<tr><td>{escape(str(row.get('chat_id')))}</td>"
@@ -361,8 +367,14 @@ async def leads_csv(request: Request, _: str = Depends(require_admin)) -> Stream
     writer.writerow(["name", "phone", "zone_id", "date", "guests", "notes"])
     for row in rows:
         writer.writerow(
-            [row.get("name"), row.get("phone"), row.get("zone_id"),
-             row.get("date"), row.get("guests"), row.get("notes")]
+            [
+                row.get("name"),
+                row.get("phone"),
+                row.get("zone_id"),
+                row.get("date"),
+                row.get("guests"),
+                row.get("notes"),
+            ]
         )
     buffer.seek(0)
     return StreamingResponse(
@@ -424,7 +436,9 @@ async def prompt(request: Request, _: str = Depends(require_admin)) -> HTMLRespo
     from app.agent.prompts import build_system_prompt
 
     blocks = build_system_prompt(_kb(request))
-    body = ["<p class='note'>Системный промт целиком. Секция тона правится в app/agent/prompts.py.</p>"]
+    body = [
+        "<p class='note'>Системный промт целиком. Секция тона правится в app/agent/prompts.py.</p>"
+    ]
     for block in blocks:
         cached = " (кешируется)" if block.get("cache_control") else ""
         body.append(f"<h1>Блок{cached}</h1><pre style='white-space:pre-wrap'>{block['text']}</pre>")

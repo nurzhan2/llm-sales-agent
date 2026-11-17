@@ -29,12 +29,24 @@ async def session_factory():
 @pytest.fixture
 async def seeded_session_factory(session_factory):
     async with session_factory() as session:
-        session.add(ZoneServiceMap(
-            zone_id="bath_russian", service_id="10", staff_id="20", company_id="1", enabled=True,
-        ))
-        session.add(ZoneServiceMap(
-            zone_id="bath_garage", service_id="11", staff_id="21", company_id="1", enabled=False,
-        ))
+        session.add(
+            ZoneServiceMap(
+                zone_id="bath_russian",
+                service_id="10",
+                staff_id="20",
+                company_id="1",
+                enabled=True,
+            )
+        )
+        session.add(
+            ZoneServiceMap(
+                zone_id="bath_garage",
+                service_id="11",
+                staff_id="21",
+                company_id="1",
+                enabled=False,
+            )
+        )
         await session.commit()
     return session_factory
 
@@ -42,6 +54,7 @@ async def seeded_session_factory(session_factory):
 # --------------------------------------------------------------------------
 # «SqlAlchemyZoneMapping читает и кеширует»
 # --------------------------------------------------------------------------
+
 
 async def test_get_returns_none_before_load(seeded_session_factory):
     """Без явного load() кеш пуст — то же безопасное вырождение, что и у
@@ -63,7 +76,7 @@ async def test_load_populates_cache_from_db(seeded_session_factory):
 async def test_disabled_row_is_treated_as_absent(seeded_session_factory):
     mapping = SqlAlchemyZoneMapping(seeded_session_factory)
     await mapping.load()
-    assert mapping.get("bath_garage") is None   # enabled=False в БД
+    assert mapping.get("bath_garage") is None  # enabled=False в БД
 
 
 async def test_get_after_load_does_not_hit_the_db_again(seeded_session_factory):
@@ -80,9 +93,10 @@ async def test_get_after_load_does_not_hit_the_db_again(seeded_session_factory):
 async def test_mapped_and_unmapped_zones_after_load(seeded_session_factory):
     mapping = SqlAlchemyZoneMapping(seeded_session_factory)
     await mapping.load()
-    assert mapping.mapped_zones() == ["bath_russian"]   # bath_garage выключена
+    assert mapping.mapped_zones() == ["bath_russian"]  # bath_garage выключена
     assert mapping.unmapped_zones(["bath_russian", "bath_garage", "dome_bags"]) == [
-        "bath_garage", "dome_bags",
+        "bath_garage",
+        "dome_bags",
     ]
 
 
@@ -95,6 +109,7 @@ async def test_missing_table_row_is_unmapped(seeded_session_factory):
 # --------------------------------------------------------------------------
 # «Инвалидация после правки»
 # --------------------------------------------------------------------------
+
 
 async def test_set_writes_to_db_and_updates_cache_immediately(session_factory):
     mapping = SqlAlchemyZoneMapping(session_factory)
@@ -113,7 +128,7 @@ async def test_set_persists_across_a_fresh_load_from_a_new_instance(session_fact
     writer = SqlAlchemyZoneMapping(session_factory)
     await writer.set("dome_bags", service_id="30", staff_id="40", company_id="1")
 
-    reader = SqlAlchemyZoneMapping(session_factory)   # «другой процесс»
+    reader = SqlAlchemyZoneMapping(session_factory)  # «другой процесс»
     await reader.load()
     row = reader.get("dome_bags")
     assert row is not None
@@ -130,9 +145,16 @@ async def test_set_updates_existing_row_not_a_duplicate(seeded_session_factory):
     # тот же zone_id — не новая строка поверх старой
     async with seeded_session_factory() as session:
         from sqlalchemy import select
-        rows = (await session.execute(
-            select(ZoneServiceMap).where(ZoneServiceMap.zone_id == "bath_russian")
-        )).scalars().all()
+
+        rows = (
+            (
+                await session.execute(
+                    select(ZoneServiceMap).where(ZoneServiceMap.zone_id == "bath_russian")
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert len(rows) == 1
 
 

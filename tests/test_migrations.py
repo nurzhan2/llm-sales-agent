@@ -81,7 +81,9 @@ def _table_names(url: str) -> set[str]:
         engine = create_async_engine(url)
         try:
             async with engine.connect() as conn:
-                return await conn.run_sync(lambda sync_conn: set(inspect(sync_conn).get_table_names()))
+                return await conn.run_sync(
+                    lambda sync_conn: set(inspect(sync_conn).get_table_names())
+                )
         finally:
             await engine.dispose()
 
@@ -123,7 +125,9 @@ def alembic_config(monkeypatch):
 
 
 def test_upgrade_head_creates_all_tables_on_empty_db(alembic_config):
-    command.downgrade(alembic_config, "base")  # гарантируем чистый старт независимо от прошлого состояния
+    command.downgrade(
+        alembic_config, "base"
+    )  # гарантируем чистый старт независимо от прошлого состояния
 
     command.upgrade(alembic_config, "head")
 

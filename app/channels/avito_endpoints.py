@@ -72,7 +72,7 @@ LIST_ITEMS_MAX_PER_PAGE = 100
 WEBHOOK_SUBSCRIBE = ("POST", "/messenger/v3/webhook")
 # Тело: {"url": "https://.../webhook/avito/<secret>"}
 
-LIST_SUBSCRIPTIONS = ("POST", "/messenger/v1/subscriptions")   # именно POST
+LIST_SUBSCRIPTIONS = ("POST", "/messenger/v1/subscriptions")  # именно POST
 WEBHOOK_UNSUBSCRIBE = ("POST", "/messenger/v1/webhook/unsubscribe")
 
 # ── Ограничение частоты ───────────────────────────────────────────────────

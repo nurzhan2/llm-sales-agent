@@ -19,8 +19,6 @@ from __future__ import annotations
 import io
 import logging
 
-import pytest
-
 from app.logging_setup import LOG_FORMAT, ExtraFieldsFormatter, configure_logging
 
 LOGGER_NAME = "parmangal.test_logging_setup"
@@ -65,14 +63,15 @@ def test_several_extra_fields_all_appear():
     output = _capture(
         logger,
         lambda lg: lg.info(
-            "pipeline: message without text — type=%s", "image",
+            "pipeline: message without text — type=%s",
+            "image",
             extra={"chat_id": "chat-1", "reason": "no online booking"},
         ),
     )
 
     assert "chat_id=chat-1" in output
     assert "reason=no online booking" in output
-    assert "type=image" in output   # из самого текста сообщения, не из extra
+    assert "type=image" in output  # из самого текста сообщения, не из extra
 
 
 def test_message_without_extra_is_unchanged():

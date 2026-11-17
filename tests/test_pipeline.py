@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -30,7 +30,7 @@ from app.pipeline import SYSTEM_MESSAGE_GREETING, MessagePipeline
 from app.pricing.concessions import ConcessionDecision, ConcessionEvent, DialogConcessionState
 from app.pricing.engine import PriceQuote
 
-NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 NOW_TS = int(NOW.timestamp())
 
 OUR_USER_ID = "seller-1"
@@ -109,7 +109,9 @@ class _FakeAgentLoop:
         self.calls: list[dict] = []
         self.result = result or TurnResult(text="Добрый день! Уточните дату, пожалуйста.")
 
-    async def run_turn(self, dialog_id, history, user_text, state=None, item_id=None, item_lookup=None):
+    async def run_turn(
+        self, dialog_id, history, user_text, state=None, item_id=None, item_lookup=None
+    ):
         self.calls.append(
             {
                 "dialog_id": dialog_id,
@@ -230,6 +232,7 @@ async def _take_over(ops_service, store=None, chat_id: str = "chat-1", at=None):
 # Сквозной путь
 # --------------------------------------------------------------------------
 
+
 async def test_incoming_message_reaches_the_agent_and_answer_goes_to_moderation():
     pipeline, store, agent, ops_service = _build()
 
@@ -292,6 +295,7 @@ async def test_several_messages_in_the_window_reach_the_agent_as_one_turn():
 # Дедупликация
 # --------------------------------------------------------------------------
 
+
 async def test_repeated_webhook_with_the_same_message_id_does_nothing():
     pipeline, store, agent, _ = _build()
 
@@ -316,14 +320,16 @@ async def test_duplicate_does_not_reset_the_touch_timer_again():
     # Ставим таймер вручную, как будто цена уже названа и касание запланировано.
     concession, _touch = await store.load_dialog_state("chat-1")
     await store.save_dialog_state(
-        "chat-1", concession, TouchState(touch_count=1, next_touch_due_at=NOW + timedelta(minutes=30))
+        "chat-1",
+        concession,
+        TouchState(touch_count=1, next_touch_due_at=NOW + timedelta(minutes=30)),
     )
 
-    await pipeline.handle_message(_payload(message_id="msg-7"))   # тот же id
+    await pipeline.handle_message(_payload(message_id="msg-7"))  # тот же id
     await _settle()
 
     _c, touch = await store.load_dialog_state("chat-1")
-    assert touch.next_touch_due_at == NOW + timedelta(minutes=30)   # не сброшен
+    assert touch.next_touch_due_at == NOW + timedelta(minutes=30)  # не сброшен
 
 
 async def test_our_own_message_echo_is_ignored():
@@ -334,9 +340,7 @@ async def test_our_own_message_echo_is_ignored():
     await store.save_outgoing("chat-1", "наш ответ клиенту", SendStatus.sent)
     before = len(store.messages["chat-1"])
 
-    await pipeline.handle_message(
-        _payload(author_id=OUR_USER_ID, text="наш ответ клиенту")
-    )
+    await pipeline.handle_message(_payload(author_id=OUR_USER_ID, text="наш ответ клиенту"))
     await _settle()
 
     assert agent.calls == []
@@ -348,6 +352,7 @@ async def test_our_own_message_echo_is_ignored():
 # --------------------------------------------------------------------------
 # Перехват оператором
 # --------------------------------------------------------------------------
+
 
 async def test_agent_is_not_called_when_the_chat_is_taken_over():
     store = InMemoryDialogStore()
@@ -437,6 +442,7 @@ async def test_paused_agent_does_not_reply():
 # Сброс таймера касаний ответом клиента
 # --------------------------------------------------------------------------
 
+
 async def test_client_reply_resets_the_touch_timer():
     """Главный баг, ради которого всё это собиралось: без сброса второе
     касание уходит человеку, который только что ответил."""
@@ -452,7 +458,7 @@ async def test_client_reply_resets_the_touch_timer():
 
     _concession, touch = await store.load_dialog_state("chat-1")
     assert touch.next_touch_due_at is None
-    assert touch.touch_count == 1   # уже отправленные касания не «отменяются»
+    assert touch.touch_count == 1  # уже отправленные касания не «отменяются»
 
 
 async def test_after_a_client_reply_the_scheduler_no_longer_considers_the_dialog_due():
@@ -460,14 +466,18 @@ async def test_after_a_client_reply_the_scheduler_no_longer_considers_the_dialog
     перестаёт быть «созревшим» для касания."""
     store = InMemoryDialogStore()
     pipeline, store, agent, _ = _build(store=store)
-    overdue = TouchState(touch_count=1, last_touch_at=NOW - timedelta(hours=1), next_touch_due_at=NOW - timedelta(minutes=1))
+    overdue = TouchState(
+        touch_count=1,
+        last_touch_at=NOW - timedelta(hours=1),
+        next_touch_due_at=NOW - timedelta(minutes=1),
+    )
     await store.save_dialog_state("chat-1", DialogConcessionState(base_price_quoted=True), overdue)
-    assert is_due(overdue, NOW, max_count=3)      # до ответа — созрел
+    assert is_due(overdue, NOW, max_count=3)  # до ответа — созрел
 
     await pipeline.handle_message(_payload(text="Ой, я тут"))
 
     _c, touch = await store.load_dialog_state("chat-1")
-    assert not is_due(touch, NOW, max_count=3)    # после ответа — нет
+    assert not is_due(touch, NOW, max_count=3)  # после ответа — нет
 
 
 async def test_reply_without_text_still_resets_the_timer():
@@ -486,12 +496,13 @@ async def test_reply_without_text_still_resets_the_timer():
 
     _c, touch = await store.load_dialog_state("chat-1")
     assert touch.next_touch_due_at is None
-    assert agent.calls == []      # но и агента дёргать не на что
+    assert agent.calls == []  # но и агента дёргать не на что
 
 
 # --------------------------------------------------------------------------
 # Сообщение без текста: диагностика в логе, фото — не молчание
 # --------------------------------------------------------------------------
+
 
 async def test_image_without_text_gets_a_canned_reply_not_silence():
     """Худший вариант — молчание в ответ на активность клиента. Не ход
@@ -503,7 +514,7 @@ async def test_image_without_text_gets_a_canned_reply_not_silence():
     await pipeline.handle_message(_image_payload())
     await _settle()
 
-    assert agent.calls == []      # не ход LLM — шаблон
+    assert agent.calls == []  # не ход LLM — шаблон
     pending = await ops_service.store.get_pending("chat-1")
     assert pending is not None
     assert "Вижу фото" in pending.text
@@ -611,6 +622,7 @@ async def test_textless_payload_of_unknown_type_is_logged_but_not_answered():
 # прайс на бани.
 # --------------------------------------------------------------------------
 
+
 class _FakeAvitoWithChat(_FakeAvito):
     """`get_chat` для фолбэка item_id. `chat_calls` — чтобы проверить, что
     лишнего запроса к Авито не случилось."""
@@ -645,8 +657,8 @@ async def test_message_from_a_listing_outside_the_allowlist_never_reaches_the_ag
     await _settle()
 
     assert agent.calls == []
-    assert store.chats == {}                      # диалог не создан
-    assert store.messages == {}                   # сообщение не сохранено
+    assert store.chats == {}  # диалог не создан
+    assert store.messages == {}  # сообщение не сохранено
     assert await ops_service.store.get_pending("chat-1") is None
 
 
@@ -664,7 +676,7 @@ async def test_empty_allowlist_lets_everything_through():
     """Переменная не задана — поведение ровно прежнее. Пустой список НЕ
     означает «запретить всё»: забытая переменная не должна превращать
     агента в молчуна."""
-    pipeline, store, agent, _ = _build(settings=_settings())   # список пуст
+    pipeline, store, agent, _ = _build(settings=_settings())  # список пуст
 
     await pipeline.handle_message(_payload(item_id="item-какой-угодно"))
     await _settle()
@@ -765,6 +777,7 @@ async def test_blocked_listing_is_logged_with_the_item_id(caplog):
 # Чёрный список — основной режим
 # --------------------------------------------------------------------------
 
+
 async def test_blocklisted_listing_is_ignored():
     """Пять посторонних объявлений заказчика. Вакансия менеджера — то самое
     объявление, из-за которого фильтр вообще появился."""
@@ -805,14 +818,20 @@ async def test_allowlist_still_wins_when_set():
 # item_scope — та же классификация, что на границе отправки
 # --------------------------------------------------------------------------
 
+
 def _build_with_scope_resolver(resolver, *, settings=None):
     settings = settings or _settings()
     store = InMemoryDialogStore()
     agent = _FakeAgentLoop()
     ops_service = OpsService(store=InMemoryOpsStore(), settings=settings)
     pipeline = MessagePipeline(
-        store=store, agent_loop=agent, ops_service=ops_service, settings=settings,
-        debounce_window_seconds=0, now_fn=lambda: NOW, item_scope_resolver=resolver,
+        store=store,
+        agent_loop=agent,
+        ops_service=ops_service,
+        settings=settings,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
+        item_scope_resolver=resolver,
     )
     return pipeline, store, agent, ops_service
 
@@ -853,7 +872,7 @@ async def test_pipeline_denies_foreign_listing_through_item_scope():
     from app.channels.item_scope import InMemoryItemScopeStore, ItemScopeResolver
 
     async def own_items():
-        return {"item-1"}   # объявления комплекса — репетитора среди них нет
+        return {"item-1"}  # объявления комплекса — репетитора среди них нет
 
     resolver = ItemScopeResolver(
         InMemoryItemScopeStore(), _settings(), own_items_provider=own_items
@@ -870,6 +889,7 @@ async def test_pipeline_denies_foreign_listing_through_item_scope():
 # --------------------------------------------------------------------------
 # Фолбэк item_id через get_chat
 # --------------------------------------------------------------------------
+
 
 async def test_item_id_is_recovered_from_get_chat_when_the_webhook_lacks_it():
     """Спек (schemas/Chat): context.type == "item", context.value.id — ID
@@ -900,8 +920,8 @@ async def test_profile_chats_do_not_trigger_a_get_chat_request():
     await pipeline.handle_message(_payload_without_item(chat_type="u2u"))
     await _settle()
 
-    assert avito.chat_calls == []      # запроса не было
-    assert len(agent.calls) == 1       # но ответить клиенту это не мешает
+    assert avito.chat_calls == []  # запроса не было
+    assert len(agent.calls) == 1  # но ответить клиенту это не мешает
 
 
 async def test_get_chat_failure_does_not_crash_the_turn():
@@ -914,7 +934,7 @@ async def test_get_chat_failure_does_not_crash_the_turn():
     await _settle()
 
     assert avito.chat_calls == ["chat-1"]
-    assert len(agent.calls) == 1       # ход состоялся, просто без item_id
+    assert len(agent.calls) == 1  # ход состоялся, просто без item_id
 
 
 async def test_get_chat_is_not_called_when_the_webhook_already_has_item_id():
@@ -950,7 +970,7 @@ async def test_quoting_a_price_schedules_the_next_touch():
 async def test_no_price_yet_means_no_touch_is_scheduled():
     """Напоминание «вы где-то затерялись?» бессмысленно для клиента, который
     ещё не услышал ни одной цифры."""
-    pipeline, store, agent, _ = _build()   # ответ без цены
+    pipeline, store, agent, _ = _build()  # ответ без цены
 
     await pipeline.handle_message(_payload())
     await _settle()
@@ -963,6 +983,7 @@ async def test_no_price_yet_means_no_touch_is_scheduled():
 # --------------------------------------------------------------------------
 # История диалога
 # --------------------------------------------------------------------------
+
 
 async def test_agent_receives_previous_messages_as_history():
     store = InMemoryDialogStore()
@@ -1026,8 +1047,10 @@ async def test_dialog_state_after_the_turn_is_persisted():
         TurnResult(
             text="Хорошо, 5 000 ₽.",
             concession_state=DialogConcessionState(
-                base_price_quoted=True, used_tiers=frozenset({1}),
-                floor_reached=Decimal("5000"), touch_count=1,
+                base_price_quoted=True,
+                used_tiers=frozenset({1}),
+                floor_reached=Decimal("5000"),
+                touch_count=1,
             ),
         )
     )
@@ -1045,9 +1068,15 @@ async def test_dialog_state_after_the_turn_is_persisted():
 # Сохранение исходящих и llm_meta
 # --------------------------------------------------------------------------
 
+
 async def test_outgoing_is_saved_with_llm_meta():
-    meta = {"provider": "anthropic", "model": "claude-sonnet-5",
-            "input_tokens": 1200, "output_tokens": 80, "cost_rub": "1.23"}
+    meta = {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "input_tokens": 1200,
+        "output_tokens": 80,
+        "cost_rub": "1.23",
+    }
     agent = _FakeAgentLoop(TurnResult(text="Ответ агента", llm_meta=meta))
     pipeline, store, agent, _ = _build(agent=agent)
 
@@ -1101,6 +1130,7 @@ async def test_silent_turn_saves_no_outgoing_message():
 # Уведомление оператора
 # --------------------------------------------------------------------------
 
+
 async def test_operator_gets_a_card_in_dry_run():
     bot = _FakeOpsBot()
     pipeline, store, agent, _ = _build(
@@ -1127,11 +1157,15 @@ async def test_missing_bot_does_not_break_the_turn():
 async def test_escalation_notifies_the_operator_even_outside_dry_run():
     bot = _FakeOpsBot()
     agent = _FakeAgentLoop(
-        TurnResult(text="Уточню у менеджера.", escalated=True, escalation_reason="клиент просит человека")
+        TurnResult(
+            text="Уточню у менеджера.", escalated=True, escalation_reason="клиент просит человека"
+        )
     )
     pipeline, store, agent, _ = _build(
         settings=_settings(dry_run=False, telegram_ops_chat_id="-100500"),
-        agent=agent, avito=_FakeAvito(), ops_bot=bot,
+        agent=agent,
+        avito=_FakeAvito(),
+        ops_bot=bot,
     )
 
     await pipeline.handle_message(_payload())
@@ -1145,9 +1179,11 @@ async def test_escalation_notifies_the_operator_even_outside_dry_run():
 # Устойчивость
 # --------------------------------------------------------------------------
 
+
 async def test_agent_failure_does_not_escape_the_background_task():
     """Исключение отсюда всё равно некому поймать — Авито уже получил 200.
     Значит оно обязано быть залогировано, а не утонуть молча."""
+
     class _Boom:
         async def run_turn(self, **kwargs):
             raise RuntimeError("провайдер недоступен")
@@ -1156,13 +1192,15 @@ async def test_agent_failure_does_not_escape_the_background_task():
     pipeline.agent_loop = _Boom()
 
     await pipeline.handle_message(_payload())
-    await _settle()   # не должно бросить
+    await _settle()  # не должно бросить
 
 
 async def test_webhook_without_chat_id_is_dropped_quietly():
     pipeline, store, agent, _ = _build()
 
-    await pipeline.handle_message({"payload": {"value": {"id": "x", "content": {"text": "привет"}}}})
+    await pipeline.handle_message(
+        {"payload": {"value": {"id": "x", "content": {"text": "привет"}}}}
+    )
     await _settle()
 
     assert agent.calls == []
@@ -1177,6 +1215,7 @@ async def test_webhook_without_chat_id_is_dropped_quietly():
 # app/pipeline.py), поэтому только тут вообще видно, что отличает
 # moderation_mode друг от друга.
 
+
 def _quote(total=Decimal("7000")):
     return PriceQuote(status="ok", total=total, zone_id="bath_russian", day_type="weekend")
 
@@ -1184,29 +1223,50 @@ def _quote(total=Decimal("7000")):
 def _price_concession_event(base=Decimal("7000"), final=Decimal("6000")):
     """Как если бы decide() выдал ценовую уступку (ступень 5)."""
     decision = ConcessionDecision(
-        allowed=True, tier=5, kind="price", new_quote=_quote(final),
-        revenue_delta=final - base, revenue_delta_basis="base_rate",
+        allowed=True,
+        tier=5,
+        kind="price",
+        new_quote=_quote(final),
+        revenue_delta=final - base,
+        revenue_delta_basis="base_rate",
         offer_template="Идёт навстречу — 6 000 ₽ вместо 7 000 ₽.",
     )
-    return ConcessionEvent(decision=decision, base_price=base, zone_id="bath_russian", trigger="price_objection")
+    return ConcessionEvent(
+        decision=decision, base_price=base, zone_id="bath_russian", trigger="price_objection"
+    )
 
 
 def _non_price_concession_event():
     """Как если бы decide() выдал неценовую ступень (перенос на будни)."""
     decision = ConcessionDecision(
-        allowed=True, tier=1, kind="non_price",
+        allowed=True,
+        tier=1,
+        kind="non_price",
         offer_template="Могу предложить будний день — там дешевле.",
     )
-    return ConcessionEvent(decision=decision, base_price=Decimal("7000"), zone_id="bath_russian", trigger="price_objection")
+    return ConcessionEvent(
+        decision=decision,
+        base_price=Decimal("7000"),
+        zone_id="bath_russian",
+        trigger="price_objection",
+    )
 
 
 def _requires_operator_approval_event():
     """Как если бы decide() не смог посчитать загрузку (R7)."""
     decision = ConcessionDecision(
-        allowed=False, tier=5, kind="price", requires_operator_approval=True,
+        allowed=False,
+        tier=5,
+        kind="price",
+        requires_operator_approval=True,
         denial_reason="Загрузка на эту дату неизвестна — нужно ваше решение по скидке",
     )
-    return ConcessionEvent(decision=decision, base_price=Decimal("7000"), zone_id="bath_russian", trigger="price_objection")
+    return ConcessionEvent(
+        decision=decision,
+        base_price=Decimal("7000"),
+        zone_id="bath_russian",
+        trigger="price_objection",
+    )
 
 
 class _FakeConcessionAgentLoop:
@@ -1214,13 +1274,23 @@ class _FakeConcessionAgentLoop:
     run_turn дважды для запроса на скидку в живом режиме: один раз как
     обычно, второй раз с concessions_blocked=True за запасным ответом."""
 
-    def __init__(self, result: TurnResult, fallback_text: str = "Отвечу без скидки — актуальны ли даты?"):
+    def __init__(
+        self, result: TurnResult, fallback_text: str = "Отвечу без скидки — актуальны ли даты?"
+    ):
         self.result = result
         self.fallback_text = fallback_text
         self.calls: list[dict] = []
 
-    async def run_turn(self, dialog_id, history, user_text, state=None, item_id=None,
-                        item_lookup=None, concessions_blocked=False):
+    async def run_turn(
+        self,
+        dialog_id,
+        history,
+        user_text,
+        state=None,
+        item_id=None,
+        item_lookup=None,
+        concessions_blocked=False,
+    ):
         self.calls.append({"user_text": user_text, "concessions_blocked": concessions_blocked})
         if concessions_blocked:
             return TurnResult(text=self.fallback_text)
@@ -1243,15 +1313,23 @@ def _live_settings(**overrides) -> Settings:
     return Settings(**base)
 
 
-def _build_live(*, agent, moderation_mode="concessions_only", avito=None, store=None,
-                 kb=None, ops_bot=None):
+def _build_live(
+    *, agent, moderation_mode="concessions_only", avito=None, store=None, kb=None, ops_bot=None
+):
     settings = _live_settings(moderation_mode=moderation_mode)
     store = store or InMemoryDialogStore()
     avito = avito if avito is not None else _FakeAvito()
     ops_service = OpsService(store=InMemoryOpsStore(), settings=settings)
     pipeline = MessagePipeline(
-        store=store, agent_loop=agent, ops_service=ops_service, settings=settings,
-        kb=kb, avito_client=avito, ops_bot=ops_bot, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=agent,
+        ops_service=ops_service,
+        settings=settings,
+        kb=kb,
+        avito_client=avito,
+        ops_bot=ops_bot,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
     return pipeline, store, avito, ops_service, settings
 
@@ -1267,7 +1345,7 @@ async def test_plain_price_quote_goes_out_without_approval():
 
     assert avito.sent == [("chat-1", "Баня в субботу — 7 000 ₽ за 2 часа.")]
     assert await ops_service.store.get_pending("chat-1") is None
-    assert len(agent.calls) == 1   # ни одного повторного «чистого» хода — approval не требовался
+    assert len(agent.calls) == 1  # ни одного повторного «чистого» хода — approval не требовался
 
 
 async def test_price_concession_requires_approval():
@@ -1331,7 +1409,9 @@ async def test_routine_denial_does_not_require_approval():
     """Обычный отказ (R1/R2/R6 — например, триггер не сработал) не должен
     держать сообщение: needs_operator_approval=False у таких решений."""
     decision = ConcessionDecision(allowed=False, denial_reason="R1: ни один триггер не сработал")
-    event = ConcessionEvent(decision=decision, base_price=Decimal("7000"), zone_id="bath_russian", trigger=None)
+    event = ConcessionEvent(
+        decision=decision, base_price=Decimal("7000"), zone_id="bath_russian", trigger=None
+    )
     result = TurnResult(text="Баня — 7 000 ₽.", concession_events=[event])
     agent = _FakeConcessionAgentLoop(result)
     pipeline, store, avito, ops_service, _ = _build_live(agent=agent)
@@ -1343,7 +1423,9 @@ async def test_routine_denial_does_not_require_approval():
 
 
 async def test_moderation_mode_off_sends_even_price_concessions_without_approval():
-    result = TurnResult(text="6 000 ₽ вместо 7 000 ₽.", concession_events=[_price_concession_event()])
+    result = TurnResult(
+        text="6 000 ₽ вместо 7 000 ₽.", concession_events=[_price_concession_event()]
+    )
     agent = _FakeConcessionAgentLoop(result)
     pipeline, store, avito, ops_service, _ = _build_live(agent=agent, moderation_mode="off")
 
@@ -1363,14 +1445,16 @@ async def test_moderation_mode_all_holds_even_a_plain_price_quote():
     assert avito.sent == []
     pending = await ops_service.store.get_pending("chat-1")
     assert pending is not None
-    assert pending.is_concession is False   # обычный холд, без дедлайна и карточки скидки
+    assert pending.is_concession is False  # обычный холд, без дедлайна и карточки скидки
     assert pending.due_at is None
 
 
 async def test_price_concession_computes_the_fallback_turn_eagerly():
     """Запасной ответ считается заранее, вторым ходом с
     concessions_blocked=True — не в момент таймаута."""
-    result = TurnResult(text="6 000 ₽ вместо 7 000 ₽.", concession_events=[_price_concession_event()])
+    result = TurnResult(
+        text="6 000 ₽ вместо 7 000 ₽.", concession_events=[_price_concession_event()]
+    )
     agent = _FakeConcessionAgentLoop(result, fallback_text="Уточните дату, посчитаю точнее.")
     pipeline, store, avito, ops_service, _ = _build_live(agent=agent)
 
@@ -1388,19 +1472,25 @@ async def test_dry_run_holds_concessions_without_computing_a_fallback():
     """DRY_RUN — мастер-рубильник: держит на одобрении и без дедлайна,
     вторая (LLM-затратная) попытка ради fallback_text ни к чему, раз
     авто-отправка по таймауту тут в принципе не сработает."""
-    result = TurnResult(text="6 000 ₽ вместо 7 000 ₽.", concession_events=[_price_concession_event()])
+    result = TurnResult(
+        text="6 000 ₽ вместо 7 000 ₽.", concession_events=[_price_concession_event()]
+    )
     agent = _FakeConcessionAgentLoop(result)
     settings = _live_settings(dry_run=True)
     ops_service = OpsService(store=InMemoryOpsStore(), settings=settings)
     pipeline = MessagePipeline(
-        store=InMemoryDialogStore(), agent_loop=agent, ops_service=ops_service, settings=settings,
-        debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=InMemoryDialogStore(),
+        agent_loop=agent,
+        ops_service=ops_service,
+        settings=settings,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     await pipeline.handle_message(_payload())
     await _settle()
 
-    assert len(agent.calls) == 1   # ни одного вызова с concessions_blocked=True
+    assert len(agent.calls) == 1  # ни одного вызова с concessions_blocked=True
     pending = await ops_service.store.get_pending("chat-1")
     assert pending.is_concession is True
     assert pending.due_at is None
@@ -1426,12 +1516,21 @@ async def test_concessions_today_counts_only_allowed_grants():
 # R10 — дневной лимит уступок исчерпан: уведомление, не молчание
 # --------------------------------------------------------------------------
 
+
 def _daily_limit_event():
     decision = ConcessionDecision(
-        allowed=False, tier=5, kind="price", daily_limit_exhausted=True,
+        allowed=False,
+        tier=5,
+        kind="price",
+        daily_limit_exhausted=True,
         denial_reason="R10: исчерпан дневной лимит уступок (5)",
     )
-    return ConcessionEvent(decision=decision, base_price=Decimal("7000"), zone_id="bath_russian", trigger="price_objection")
+    return ConcessionEvent(
+        decision=decision,
+        base_price=Decimal("7000"),
+        zone_id="bath_russian",
+        trigger="price_objection",
+    )
 
 
 async def test_daily_limit_exhausted_notifies_the_operator(kb):
@@ -1439,10 +1538,14 @@ async def test_daily_limit_exhausted_notifies_the_operator(kb):
     (сообщение всё равно ушло клиенту автономно — держать на одобрении
     нечего) и отдельное предупреждение про лимит."""
     bot = _FakeOpsBot()
-    result = TurnResult(text="Уточню детали и вернусь с ответом.", concession_events=[_daily_limit_event()])
+    result = TurnResult(
+        text="Уточню детали и вернусь с ответом.", concession_events=[_daily_limit_event()]
+    )
     agent = _FakeConcessionAgentLoop(result)
     pipeline, store, avito, ops_service, settings = _build_live(
-        agent=agent, kb=kb, ops_bot=bot,
+        agent=agent,
+        kb=kb,
+        ops_bot=bot,
     )
     settings.telegram_ops_chat_id = "-100500"
 
@@ -1458,7 +1561,9 @@ async def test_daily_limit_exhausted_notifies_the_operator(kb):
 async def test_daily_limit_exhausted_does_not_block_the_message():
     """Отказ уже принят движком — держать ответ на одобрении нечего, это
     не gate. Сообщение (без скидки) уходит клиенту как обычно."""
-    result = TurnResult(text="Уточню детали и вернусь с ответом.", concession_events=[_daily_limit_event()])
+    result = TurnResult(
+        text="Уточню детали и вернусь с ответом.", concession_events=[_daily_limit_event()]
+    )
     agent = _FakeConcessionAgentLoop(result)
     pipeline, store, avito, ops_service, _ = _build_live(agent=agent)
 
@@ -1492,11 +1597,13 @@ async def test_a_silent_escalation_still_reaches_the_operator():
     клиенту ничего, оператору ничего.
     """
     bot = _FakeOpsBot()
-    agent = _FakeConcessionAgentLoop(TurnResult(
-        text="",
-        escalated=True,
-        escalation_reason="последний рубеж сработал четвёртый раз подряд",
-    ))
+    agent = _FakeConcessionAgentLoop(
+        TurnResult(
+            text="",
+            escalated=True,
+            escalation_reason="последний рубеж сработал четвёртый раз подряд",
+        )
+    )
     pipeline, store, avito, ops_service, settings = _build_live(agent=agent, ops_bot=bot)
     settings.telegram_ops_chat_id = "-100500"
 
@@ -1541,6 +1648,7 @@ async def test_no_daily_limit_event_means_no_notification():
 # Таймаут запроса на скидку
 # --------------------------------------------------------------------------
 
+
 async def test_timeout_sends_the_precomputed_fallback_and_clears_pending():
     """Просроченный запрос на скидку — клиенту уходит fallback_text, а не
     тишина, диалог продолжается."""
@@ -1556,14 +1664,22 @@ async def test_timeout_sends_the_precomputed_fallback_and_clears_pending():
     await ops_service.store.set_pending(
         "chat-1",
         PendingReply(
-            chat_id="chat-1", text="6 000 ₽ вместо 7 000 ₽.", created_at=NOW - timedelta(minutes=20),
-            is_concession=True, fallback_text="Уточню детали и вернусь с ответом.",
-            due_at=NOW - timedelta(minutes=5),   # уже просрочен
+            chat_id="chat-1",
+            text="6 000 ₽ вместо 7 000 ₽.",
+            created_at=NOW - timedelta(minutes=20),
+            is_concession=True,
+            fallback_text="Уточню детали и вернусь с ответом.",
+            due_at=NOW - timedelta(minutes=5),  # уже просрочен
         ),
     )
     pipeline = MessagePipeline(
-        store=store, agent_loop=_FakeAgentLoop(), ops_service=ops_service, settings=settings,
-        avito_client=avito, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=avito,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     handled = await pipeline.check_concession_timeouts()
@@ -1579,16 +1695,25 @@ async def test_timeout_logs_the_reason():
     await ops_service.store.set_pending(
         "chat-1",
         PendingReply(
-            chat_id="chat-1", text="скидка", created_at=NOW - timedelta(minutes=20),
-            is_concession=True, fallback_text="без скидки", due_at=NOW - timedelta(minutes=1),
+            chat_id="chat-1",
+            text="скидка",
+            created_at=NOW - timedelta(minutes=20),
+            is_concession=True,
+            fallback_text="без скидки",
+            due_at=NOW - timedelta(minutes=1),
         ),
     )
     store = InMemoryDialogStore()
     await store.get_or_create_chat("chat-1")
     await store.save_incoming("chat-1", "а можно скидку?", avito_message_id="m-скидка-2")
     pipeline = MessagePipeline(
-        store=store, agent_loop=_FakeAgentLoop(), ops_service=ops_service,
-        settings=settings, avito_client=_FakeAvito(), debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=_FakeAvito(),
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     await pipeline.check_concession_timeouts()
@@ -1603,14 +1728,23 @@ async def test_timeout_ignores_requests_not_yet_due():
     await ops_service.store.set_pending(
         "chat-1",
         PendingReply(
-            chat_id="chat-1", text="скидка", created_at=NOW, is_concession=True,
-            fallback_text="без скидки", due_at=NOW + timedelta(minutes=10),   # ещё не подошёл срок
+            chat_id="chat-1",
+            text="скидка",
+            created_at=NOW,
+            is_concession=True,
+            fallback_text="без скидки",
+            due_at=NOW + timedelta(minutes=10),  # ещё не подошёл срок
         ),
     )
     avito = _FakeAvito()
     pipeline = MessagePipeline(
-        store=InMemoryDialogStore(), agent_loop=_FakeAgentLoop(), ops_service=ops_service,
-        settings=settings, avito_client=avito, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=InMemoryDialogStore(),
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=avito,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     handled = await pipeline.check_concession_timeouts()
@@ -1628,14 +1762,23 @@ async def test_timeout_never_fires_under_dry_run_even_with_a_stale_due_at():
     await ops_service.store.set_pending(
         "chat-1",
         PendingReply(
-            chat_id="chat-1", text="скидка", created_at=NOW - timedelta(hours=1), is_concession=True,
-            fallback_text="без скидки", due_at=NOW - timedelta(minutes=1),
+            chat_id="chat-1",
+            text="скидка",
+            created_at=NOW - timedelta(hours=1),
+            is_concession=True,
+            fallback_text="без скидки",
+            due_at=NOW - timedelta(minutes=1),
         ),
     )
     avito = _FakeAvito()
     pipeline = MessagePipeline(
-        store=InMemoryDialogStore(), agent_loop=_FakeAgentLoop(), ops_service=ops_service,
-        settings=settings, avito_client=avito, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=InMemoryDialogStore(),
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=avito,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     handled = await pipeline.check_concession_timeouts()
@@ -1652,6 +1795,7 @@ async def test_timeout_never_fires_under_dry_run_even_with_a_stale_due_at():
 # (например, объявление внесли в чёрный список ПОСЛЕ начала переписки):
 # ни один путь отправки не должен написать такому клиенту.
 # --------------------------------------------------------------------------
+
 
 def _gated(blocked_item: str = "8204183112", **overrides):
     """Конвейер, у которого «клиент Авито» — OutboundGate, как в app/main.py."""
@@ -1670,12 +1814,19 @@ async def test_agent_reply_to_a_blocked_listing_never_reaches_the_client():
     # Чат уже существует и связан с объявлением, попавшим в чёрный список.
     await store.get_or_create_chat("chat-1", item_id="8204183112")
     pipeline = MessagePipeline(
-        store=store, agent_loop=_FakeAgentLoop(), ops_service=ops_service, settings=settings,
-        avito_client=gate, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=gate,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     await pipeline._deliver(
-        store.chats["chat-1"], TurnResult(text="Баня свободна!"), client_text="?",
+        store.chats["chat-1"],
+        TurnResult(text="Баня свободна!"),
+        client_text="?",
     )
 
     assert raw_avito.sent == []
@@ -1685,8 +1836,13 @@ async def test_image_reply_to_a_blocked_listing_never_reaches_the_client():
     settings, store, raw_avito, gate, ops_service = _gated()
     await store.get_or_create_chat("chat-1", item_id="8204183112")
     pipeline = MessagePipeline(
-        store=store, agent_loop=_FakeAgentLoop(), ops_service=ops_service, settings=settings,
-        avito_client=gate, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=gate,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     await pipeline._handle_image_without_text(store.chats["chat-1"])
@@ -1700,14 +1856,22 @@ async def test_concession_timeout_fallback_to_a_blocked_listing_is_not_sent():
     await ops_service.store.set_pending(
         "chat-1",
         PendingReply(
-            chat_id="chat-1", text="скидка", created_at=NOW - timedelta(minutes=20),
-            is_concession=True, fallback_text="Уточню детали и вернусь с ответом.",
+            chat_id="chat-1",
+            text="скидка",
+            created_at=NOW - timedelta(minutes=20),
+            is_concession=True,
+            fallback_text="Уточню детали и вернусь с ответом.",
             due_at=NOW - timedelta(minutes=5),
         ),
     )
     pipeline = MessagePipeline(
-        store=store, agent_loop=_FakeAgentLoop(), ops_service=ops_service, settings=settings,
-        avito_client=gate, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=gate,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     handled = await pipeline.check_concession_timeouts()
@@ -1721,12 +1885,19 @@ async def test_the_same_paths_work_for_an_allowed_listing():
     settings, store, raw_avito, gate, ops_service = _gated()
     await store.get_or_create_chat("chat-1", item_id="9999-обычное")
     pipeline = MessagePipeline(
-        store=store, agent_loop=_FakeAgentLoop(), ops_service=ops_service, settings=settings,
-        avito_client=gate, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=gate,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
 
     await pipeline._deliver(
-        store.chats["chat-1"], TurnResult(text="Баня свободна!"), client_text="?",
+        store.chats["chat-1"],
+        TurnResult(text="Баня свободна!"),
+        client_text="?",
     )
 
     assert raw_avito.sent == [("chat-1", "Баня свободна!")]
@@ -1745,11 +1916,12 @@ def test_moderation_mode_defaults_to_concessions_only():
 # 7980739861 — оба в чёрном списке по умолчанию, а переписка в них есть.
 # --------------------------------------------------------------------------
 
+
 async def test_blocklist_default_applies_without_any_env_var():
     """Переменную можно не задавать вовсе: пять id зашиты в Settings.
     Если этот тест падает, значит дефолт не подхватывается — ровно та
     гипотеза, которую проверяли по живым диалогам."""
-    settings = _settings()   # никаких avito_* переменных
+    settings = _settings()  # никаких avito_* переменных
     pipeline, store, agent, _ = _build(settings=settings)
 
     await pipeline.handle_message(_payload(item_id="8172444564", text="Квартира продаётся?"))
@@ -1766,7 +1938,7 @@ async def test_blocklist_applies_when_avito_sends_item_id_as_a_number():
     pipeline, store, agent, _ = _build(settings=settings)
 
     payload = _payload(text="Квартира продаётся?")
-    payload["payload"]["value"]["item_id"] = 8172444564    # именно число
+    payload["payload"]["value"]["item_id"] = 8172444564  # именно число
 
     await pipeline.handle_message(payload)
     await _settle()
@@ -1803,9 +1975,7 @@ async def test_echo_drop_is_logged(caplog):
     await store.save_outgoing("chat-1", "наш ответ клиенту", SendStatus.sent)
 
     with caplog.at_level("INFO", logger="parmangal.pipeline"):
-        await pipeline.handle_message(
-            _payload(author_id=OUR_USER_ID, text="наш ответ клиенту")
-        )
+        await pipeline.handle_message(_payload(author_id=OUR_USER_ID, text="наш ответ клиенту"))
     await _settle()
 
     assert agent.calls == []
@@ -1821,6 +1991,7 @@ async def test_echo_drop_is_logged(caplog):
 # применялись, и агент отвечал по квартире-студии и продаже банного
 # комплекса, хотя оба id «зашиты» в коде.
 # --------------------------------------------------------------------------
+
 
 async def test_empty_blocklist_env_still_blocks_the_default_five(monkeypatch):
     monkeypatch.setenv("AVITO_BLOCKED_ITEMS", "")
@@ -1861,6 +2032,7 @@ async def test_blocklist_can_still_be_disabled_explicitly(monkeypatch):
 # Журнал приёма: одна строка на каждое входящее, до всех проверок
 # --------------------------------------------------------------------------
 
+
 async def test_every_incoming_is_logged_before_any_check(caplog):
     """Иначе «событие не дошло» неотличимо от «дошло и молча отброшено» —
     в базе в обоих случаях пусто."""
@@ -1883,7 +2055,7 @@ async def test_intake_log_shows_the_item_id_type(caplog):
     settings = _settings()
     pipeline, store, agent, _ = _build(settings=settings)
     payload = _payload(chat_id="c-1")
-    payload["payload"]["value"]["item_id"] = 8172444564      # число, как шлёт Авито
+    payload["payload"]["value"]["item_id"] = 8172444564  # число, как шлёт Авито
 
     with caplog.at_level("INFO", logger="parmangal.pipeline"):
         await pipeline.handle_message(payload)
@@ -1960,6 +2132,7 @@ async def test_duplicate_reports_handled_so_the_poller_advances_the_cursor():
 # отсекается эхо. Различить их можно только по тому, писали мы этот текст
 # сами или нет.
 # --------------------------------------------------------------------------
+
 
 async def test_a_manager_typing_in_avito_takes_the_chat_over():
     """Текст с нашей стороны, которого мы не отправляли, — это менеджер
@@ -2100,7 +2273,7 @@ async def test_the_agent_answers_again_after_the_cooldown_window():
 
     # Окно прошло — двигаем метку перехвата назад во времени.
     flags = await ops.store.get_flags("chat-1")
-    flags.takeover_at = datetime.now(timezone.utc) - timedelta(minutes=16)
+    flags.takeover_at = datetime.now(UTC) - timedelta(minutes=16)
     await ops.store.set_flags("chat-1", flags)
 
     allowed, _ = await ops.should_agent_reply("chat-1")
@@ -2128,7 +2301,7 @@ async def test_chat_taken_over_longer_than_the_cooldown_gets_an_agent_reply():
     await store.get_or_create_chat("chat-1")
 
     # Менеджер писал 16 минут назад — окно истекло.
-    await _take_over(ops, store, at=datetime.now(timezone.utc) - timedelta(minutes=16))
+    await _take_over(ops, store, at=datetime.now(UTC) - timedelta(minutes=16))
 
     await pipeline.handle_message(_payload(text="Так сколько всё-таки выходит?"))
     await _settle()
@@ -2149,7 +2322,7 @@ async def test_chat_taken_over_inside_the_cooldown_still_silences_the_agent():
     await store.get_or_create_chat("chat-1")
 
     # Менеджер писал 5 минут назад — окно ещё идёт.
-    await _take_over(ops, store, at=datetime.now(timezone.utc) - timedelta(minutes=5))
+    await _take_over(ops, store, at=datetime.now(UTC) - timedelta(minutes=5))
 
     await pipeline.handle_message(_payload(text="Так сколько всё-таки выходит?"))
     await _settle()
@@ -2167,13 +2340,17 @@ async def test_chat_taken_over_inside_the_cooldown_still_silences_the_agent():
 # моменте, и строить его на февральской переписке нельзя.
 # --------------------------------------------------------------------------
 
+
 async def test_an_old_message_from_our_side_does_not_start_a_takeover():
     pipeline, store, agent, ops = _build()
     await store.get_or_create_chat("chat-1")
 
     await pipeline.handle_message(
-        _payload(author_id=OUR_USER_ID, text="менеджер писал это в феврале",
-                 created=NOW_TS - 200 * 24 * 3600)
+        _payload(
+            author_id=OUR_USER_ID,
+            text="менеджер писал это в феврале",
+            created=NOW_TS - 200 * 24 * 3600,
+        )
     )
     await _settle()
 
@@ -2238,7 +2415,7 @@ async def test_an_old_echo_of_our_own_answer_is_still_just_dropped():
     before = len(store.messages["chat-1"])
 
     await pipeline.handle_message(
-        _payload(author_id=OUR_USER_ID, text="наш ответ", created=NOW_TS - 10 ** 7)
+        _payload(author_id=OUR_USER_ID, text="наш ответ", created=NOW_TS - 10**7)
     )
     await _settle()
 
@@ -2254,21 +2431,29 @@ async def test_an_old_echo_of_our_own_answer_is_still_just_dropped():
 # лежать может часами — а порог за это время могли поднять.
 # --------------------------------------------------------------------------
 
+
 async def _pipeline_with_due_concession(settings, store):
     ops_service = OpsService(store=InMemoryOpsStore(), settings=settings)
     await ops_service.store.set_pending(
         "chat-1",
         PendingReply(
-            chat_id="chat-1", text="6 000 ₽ вместо 7 000 ₽.",
-            created_at=NOW - timedelta(minutes=20), is_concession=True,
+            chat_id="chat-1",
+            text="6 000 ₽ вместо 7 000 ₽.",
+            created_at=NOW - timedelta(minutes=20),
+            is_concession=True,
             fallback_text="Уточню детали и вернусь с ответом.",
             due_at=NOW - timedelta(minutes=5),
         ),
     )
     avito = _FakeAvito()
     pipeline = MessagePipeline(
-        store=store, agent_loop=_FakeAgentLoop(), ops_service=ops_service, settings=settings,
-        avito_client=avito, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=_FakeAgentLoop(),
+        ops_service=ops_service,
+        settings=settings,
+        avito_client=avito,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
     return pipeline, avito, ops_service
 
@@ -2310,6 +2495,7 @@ async def test_the_fallback_still_goes_to_a_fresh_chat():
 #
 # Требование заказчика 2026-09-18. Форма конверта — живая, снята
 # `scripts/poll_once --chat` с двух боевых чатов: author_id=0, type="system".
+
 
 def _system_payload(
     chat_id: str = "chat-1",
@@ -2356,8 +2542,7 @@ async def test_the_system_text_is_not_saved_as_a_client_message():
     await pipeline.handle_message(_system_payload())
     await _settle()
 
-    incoming = [m for m in store.messages.get("chat-1", [])
-                if m["direction"] == Direction.incoming]
+    incoming = [m for m in store.messages.get("chat-1", []) if m["direction"] == Direction.incoming]
     assert incoming == []
 
 
@@ -2404,8 +2589,11 @@ async def test_two_system_messages_in_a_row_greet_once():
     await pipeline.handle_message(_system_payload(message_id="s-2"))
     await _settle()
 
-    greetings = [m for m in store.messages.get("chat-1", [])
-                 if m["direction"] == Direction.outgoing and m["text"] == SYSTEM_MESSAGE_GREETING]
+    greetings = [
+        m
+        for m in store.messages.get("chat-1", [])
+        if m["direction"] == Direction.outgoing and m["text"] == SYSTEM_MESSAGE_GREETING
+    ]
     assert len(greetings) == 1
 
 
@@ -2427,10 +2615,14 @@ async def test_two_system_messages_arriving_at_once_greet_once():
             await asyncio.sleep(0)
 
     pipeline = MessagePipeline(
-        store=store, agent_loop=_FakeAgentLoop(),
+        store=store,
+        agent_loop=_FakeAgentLoop(),
         ops_service=OpsService(store=InMemoryOpsStore(), settings=settings),
-        settings=settings, avito_client=avito, debounce_window_seconds=0,
-        now_fn=lambda: NOW, delay_fn=human_pause,
+        settings=settings,
+        avito_client=avito,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
+        delay_fn=human_pause,
     )
 
     await asyncio.gather(
@@ -2496,7 +2688,8 @@ async def test_the_greeting_goes_out_for_real_when_live():
     """Живой режим: приветствие уходит в Авито тем же путём, что и ответ."""
     avito = _FakeAvito()
     pipeline, store, agent, ops_service = _build(
-        settings=_settings(dry_run=False, moderation_mode="off"), avito=avito,
+        settings=_settings(dry_run=False, moderation_mode="off"),
+        avito=avito,
     )
 
     await pipeline.handle_message(_system_payload())
@@ -2520,6 +2713,7 @@ def test_the_greeting_follows_the_same_rules_as_the_agent():
 # Фото клиенту: после текста, через гейт, не больше трёх, с учётом показанного
 # --------------------------------------------------------------------------
 
+
 class _PhotoAvito(_FakeAvito):
     """Запоминает порядок отправок — текст и картинки в одной ленте."""
 
@@ -2541,8 +2735,9 @@ class _PhotoAvito(_FakeAvito):
 
 def _live_build(avito, photos):
     agent = _FakeAgentLoop(TurnResult(text="Отправляю фото юрты.", photos=photos))
-    return _build(settings=_settings(dry_run=False, moderation_mode="off"),
-                  agent=agent, avito=avito)
+    return _build(
+        settings=_settings(dry_run=False, moderation_mode="off"), agent=agent, avito=avito
+    )
 
 
 async def test_photos_follow_the_text():
@@ -2552,8 +2747,7 @@ async def test_photos_follow_the_text():
     await pipeline.handle_message(_payload(text="покажите юрту"))
     await _settle()
 
-    assert avito.feed == [("text", "Отправляю фото юрты."),
-                          ("image", "img-1"), ("image", "img-2")]
+    assert avito.feed == [("text", "Отправляю фото юрты."), ("image", "img-1"), ("image", "img-2")]
 
 
 async def test_sent_photos_are_remembered_on_the_message():
@@ -2590,7 +2784,10 @@ async def test_never_more_than_three_photos_per_turn():
     await _settle()
 
     assert [x for x in avito.feed if x[0] == "image"] == [
-        ("image", "img-1"), ("image", "img-2"), ("image", "img-3")]
+        ("image", "img-1"),
+        ("image", "img-2"),
+        ("image", "img-3"),
+    ]
 
 
 async def test_photos_go_through_the_outbound_gate():
@@ -2612,7 +2809,7 @@ async def test_photos_go_through_the_outbound_gate():
     await pipeline.handle_message(_payload(text="покажите юрту"))
     await _settle()
 
-    assert calls == ["chat-1"] * 3            # текст + две картинки
+    assert calls == ["chat-1"] * 3  # текст + две картинки
     assert [x for x in inner.feed if x[0] == "image"] == [("image", "img-1"), ("image", "img-2")]
 
 
@@ -2621,8 +2818,9 @@ async def test_photos_are_not_sent_from_the_moderation_queue():
     и не считаются показанными."""
     avito = _PhotoAvito()
     agent = _FakeAgentLoop(TurnResult(text="Отправляю фото юрты.", photos=["img-1"]))
-    pipeline, store, _, ops_service = _build(settings=_settings(dry_run=True),
-                                             agent=agent, avito=avito)
+    pipeline, store, _, ops_service = _build(
+        settings=_settings(dry_run=True), agent=agent, avito=avito
+    )
 
     await pipeline.handle_message(_payload(text="покажите юрту"))
     await _settle()

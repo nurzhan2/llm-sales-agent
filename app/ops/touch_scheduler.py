@@ -15,9 +15,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Awaitable, Callable, Optional, Protocol
+from typing import Protocol
 
 from app.agent.touch_tracking import TouchState, advance_touch, is_due, is_within_working_hours
 from app.kb.loader import WorkingWindow
@@ -72,14 +73,18 @@ class SqlAlchemyTouchStore:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(DialogState).where(
-                        DialogState.next_touch_due_at.is_not(None),
-                        DialogState.next_touch_due_at <= now,
-                        DialogState.touch_count < max_count,
+                (
+                    await session.execute(
+                        select(DialogState).where(
+                            DialogState.next_touch_due_at.is_not(None),
+                            DialogState.next_touch_due_at <= now,
+                            DialogState.touch_count < max_count,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return [
                 TouchDialog(
                     chat_id=row.chat_id,
@@ -99,12 +104,12 @@ class SqlAlchemyTouchStore:
 
         async with self._session_factory() as session:
             row = (
-                await session.execute(
-                    select(DialogState).where(DialogState.chat_id == chat_id)
-                )
+                await session.execute(select(DialogState).where(DialogState.chat_id == chat_id))
             ).scalar_one_or_none()
             if row is None:
-                logger.warning("touch scheduler: no DialogState row for chat", extra={"chat_id": chat_id})
+                logger.warning(
+                    "touch scheduler: no DialogState row for chat", extra={"chat_id": chat_id}
+                )
                 return
             row.touch_count = state.touch_count
             row.last_touch_at = state.last_touch_at
@@ -117,7 +122,7 @@ Sender = Callable[[str, str], Awaitable[None]]
 CanSend = Callable[[str], Awaitable[bool]]
 # chat_id -> когда клиент писал в этот чат в последний раз (None — не писал
 # или мы не знаем). Нужен для AGENT_MIN_INBOUND_TS, см. run_scheduler_pass.
-LastInbound = Callable[[str], Awaitable[Optional[datetime]]]
+LastInbound = Callable[[str], Awaitable[datetime | None]]
 
 
 def _disarmed(state: TouchState) -> TouchState:
@@ -143,8 +148,8 @@ async def run_scheduler_pass(
     *,
     delay_minutes: int,
     max_count: int,
-    can_send: Optional[CanSend] = None,
-    last_inbound: Optional[LastInbound] = None,
+    can_send: CanSend | None = None,
+    last_inbound: LastInbound | None = None,
     min_inbound_ts: int = 0,
 ) -> list[str]:
     """Один проход. Возвращает chat_id всех диалогов, которым реально

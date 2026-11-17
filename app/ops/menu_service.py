@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import secrets
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from app.kb.editable import field_by_key
 from app.kb.editor import CatalogEditor, EditPreview, human_value, price_example
@@ -43,21 +43,27 @@ class Reply:
     text: str
     markup: Any = None
     edit: bool = True
-    alert: Optional[str] = None
+    alert: str | None = None
 
 
 @dataclass
 class PendingEdit:
     token: str
     field_key: str
-    zone_id: Optional[str]
-    preview: Optional[EditPreview] = None
+    zone_id: str | None
+    preview: EditPreview | None = None
 
 
 class MenuService:
-    def __init__(self, editor: CatalogEditor, settings: Any, ops_service: Any,
-                 stats_provider: Any = None, dialogs_provider: Any = None,
-                 on_kb_reloaded: Any = None):
+    def __init__(
+        self,
+        editor: CatalogEditor,
+        settings: Any,
+        ops_service: Any,
+        stats_provider: Any = None,
+        dialogs_provider: Any = None,
+        on_kb_reloaded: Any = None,
+    ):
         self.editor = editor
         self.settings = settings
         self.ops = ops_service
@@ -131,7 +137,7 @@ class MenuService:
 
     # -- правка -------------------------------------------------------------
 
-    async def start_edit(self, user_id: int, field_key: str, zone_id: Optional[str]) -> Reply:
+    async def start_edit(self, user_id: int, field_key: str, zone_id: str | None) -> Reply:
         if not self._allowed(user_id):
             return Reply(ACCESS_DENIED, edit=False)
         try:
@@ -144,7 +150,7 @@ class MenuService:
         self.pending[user_id] = PendingEdit(token=token, field_key=field_key, zone_id=zone_id)
         return Reply(menu.ask_value_card(field, human_value(current)), markup=None)
 
-    async def receive_value(self, user_id: int, text: str) -> Optional[Reply]:
+    async def receive_value(self, user_id: int, text: str) -> Reply | None:
         """None означает «этот текст не для нас» — обычное сообщение в чате,
         а не ответ на запрос значения. Хендлер тогда не вмешивается."""
         pending = self.pending.get(user_id)
@@ -160,13 +166,14 @@ class MenuService:
         except OverrideError as exc:
             # Правка НЕ сохранена, состояние остаётся — оператор может
             # прислать исправленное значение, не начиная с меню заново.
-            return Reply(f"⚠️ {exc}\n\nПришлите другое значение или вернитесь в меню.",
-                         edit=False)
+            return Reply(f"⚠️ {exc}\n\nПришлите другое значение или вернитесь в меню.", edit=False)
 
         pending.preview = preview
         kb_now = await self.editor.current_kb()
         before = price_example(kb_now, pending.zone_id)
-        return Reply(menu.confirm_card(preview, before), menu.confirm_menu(pending.token), edit=False)
+        return Reply(
+            menu.confirm_card(preview, before), menu.confirm_menu(pending.token), edit=False
+        )
 
     async def confirm(self, user_id: int, token: str) -> Reply:
         if not self._allowed(user_id):
@@ -184,9 +191,14 @@ class MenuService:
             return Reply(f"⚠️ {exc}", menu.main_menu())
 
         await self.ops.store.log_action(
-            "*", user_id, "catalog_edit",
-            {"path": pending.preview.path, "from": pending.preview.previous_human,
-             "to": pending.preview.new_human},
+            "*",
+            user_id,
+            "catalog_edit",
+            {
+                "path": pending.preview.path,
+                "from": pending.preview.previous_human,
+                "to": pending.preview.new_human,
+            },
         )
         self.pending.pop(user_id, None)
         if self.on_kb_reloaded is not None:
@@ -205,7 +217,9 @@ class MenuService:
             return Reply("Откатывать нечего — правок нет.", menu.main_menu())
 
         await self.ops.store.log_action(
-            "*", user_id, "catalog_revert",
+            "*",
+            user_id,
+            "catalog_revert",
             {"override_id": result.record.id, "path": result.record.path},
         )
         if self.on_kb_reloaded is not None:
@@ -226,8 +240,7 @@ class MenuService:
         if not self._allowed(user_id):
             return Reply(ACCESS_DENIED, edit=False)
         message = await self.ops.set_moderation_mode(user_id, mode)
-        return Reply(f"{message}\n\n{menu.mode_card(self.settings)}",
-                     menu.mode_menu(self.settings))
+        return Reply(f"{message}\n\n{menu.mode_card(self.settings)}", menu.mode_menu(self.settings))
 
     async def toggle(self, user_id: int, action: str) -> Reply:
         if not self._allowed(user_id):
@@ -242,5 +255,4 @@ class MenuService:
             message = await self.ops.resume_all(user_id)
         else:
             return Reply("Неизвестное действие.", menu.mode_menu(self.settings))
-        return Reply(f"{message}\n\n{menu.mode_card(self.settings)}",
-                     menu.mode_menu(self.settings))
+        return Reply(f"{message}\n\n{menu.mode_card(self.settings)}", menu.mode_menu(self.settings))

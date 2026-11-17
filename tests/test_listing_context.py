@@ -31,6 +31,7 @@ class FakeLookup:
 # resolve_listing
 # --------------------------------------------------------------------------
 
+
 async def test_no_item_id_is_unknown(kb):
     resolution = await resolve_listing(None, FakeLookup({}), kb)
     assert resolution.status == "unknown"
@@ -106,6 +107,7 @@ async def test_unknown_category_falls_back_to_unknown(kb):
 # build_listing_hint
 # --------------------------------------------------------------------------
 
+
 def test_resolved_hint_names_the_zone(kb):
     hint = build_listing_hint(ListingResolution(status="resolved", zone_id="tent"), kb)
     assert hint is not None
@@ -142,6 +144,7 @@ def test_resolved_hint_handles_dangling_zone_id_gracefully(kb):
 # --------------------------------------------------------------------------
 # site_fallback_hint — никогда не выдумывает URL
 # --------------------------------------------------------------------------
+
 
 def test_site_fallback_gives_the_client_confirmed_url(kb):
     """14.7 закрыт: заказчик прислал сайт в рабочий чат 2026-09-07 — агент
@@ -181,6 +184,7 @@ def test_site_fallback_uses_url_once_confirmed():
 
 # ------------------------------------------------- октябрь 2026: купола, сертификаты
 
+
 async def test_domes_have_same_price_so_hint_says_name_it_at_once(kb):
     # Живой прогон 09.10: на «сколько стоит беседку» бот сначала спрашивал,
     # какой из трёх куполов, хотя цены у них одинаковые.
@@ -203,7 +207,8 @@ def test_different_prices_get_no_note(kb):
     from app.agent.listing_context import ListingResolution as R
 
     hint = build_listing_hint(
-        R(status="ambiguous", candidate_zone_ids=("dome_bags", "grill_house")), kb,
+        R(status="ambiguous", candidate_zone_ids=("dome_bags", "grill_house")),
+        kb,
     )
     assert "ОДИНАКОВЫЕ" not in hint
 

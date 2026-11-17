@@ -28,14 +28,20 @@ async def main() -> None:
     booking = YClientsProvider(
         partner_token=s.yclients_partner_token.get_secret_value(),
         user_token=s.yclients_user_token.get_secret_value(),
-        company_id=s.yclients_company_id, mapping=zm, redis=None,
+        company_id=s.yclients_company_id,
+        mapping=zm,
+        redis=None,
     )
     avito = AvitoClient(settings=s, redis=None)
     items = AvitoItemsClient(settings=s)
     try:
         facts = await collect_facts(
-            session_factory=sm, items_client=items, avito_client=avito,
-            booking_provider=booking, zone_mapping=zm, settings=s,
+            session_factory=sm,
+            items_client=items,
+            avito_client=avito,
+            booking_provider=booking,
+            zone_mapping=zm,
+            settings=s,
         )
         text = analyze(facts, kb).render()
         print(text)

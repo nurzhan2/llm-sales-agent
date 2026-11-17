@@ -63,6 +63,7 @@ class FakeClient:
 # AnthropicProvider — поведение не меняется
 # --------------------------------------------------------------------------
 
+
 async def test_anthropic_provider_omits_tools_when_empty():
     client = FakeClient()
     provider = AnthropicProvider(client=client)
@@ -92,6 +93,7 @@ def test_anthropic_provider_supports_caching():
 # --------------------------------------------------------------------------
 # DeepSeekProvider
 # --------------------------------------------------------------------------
+
 
 async def test_deepseek_provider_disables_thinking_by_default():
     """Без этого max_tokens=8 у классификатора съедается размышлением целиком
@@ -134,11 +136,15 @@ async def test_deepseek_provider_forwards_the_forced_tool_choice():
     client = FakeClient()
     provider = DeepSeekProvider(client=client)
     await provider.complete(
-        model=DIALOG_MODEL, messages=[], max_tokens=8, tools=[{"name": "x"}],
+        model=DIALOG_MODEL,
+        messages=[],
+        max_tokens=8,
+        tools=[{"name": "x"}],
         tool_choice={"type": "tool", "name": "check_availability"},
     )
     assert client.messages.calls[0]["tool_choice"] == {
-        "type": "tool", "name": "check_availability",
+        "type": "tool",
+        "name": "check_availability",
     }
 
 
@@ -147,8 +153,7 @@ async def test_deepseek_provider_omits_tool_choice_when_nothing_is_forced():
     БЕЗ принуждения, и посылать в него пустое поле незачем."""
     client = FakeClient()
     provider = DeepSeekProvider(client=client)
-    await provider.complete(model=DIALOG_MODEL, messages=[], max_tokens=8,
-                            tools=[{"name": "x"}])
+    await provider.complete(model=DIALOG_MODEL, messages=[], max_tokens=8, tools=[{"name": "x"}])
     assert "tool_choice" not in client.messages.calls[0]
 
 
@@ -158,11 +163,15 @@ async def test_anthropic_provider_forwards_the_forced_tool_choice():
     client = FakeClient()
     provider = AnthropicProvider(client=client)
     await provider.complete(
-        model="claude-sonnet-5", messages=[], max_tokens=8, tools=[{"name": "x"}],
+        model="claude-sonnet-5",
+        messages=[],
+        max_tokens=8,
+        tools=[{"name": "x"}],
         tool_choice={"type": "tool", "name": "calculate_price"},
     )
     assert client.messages.calls[0]["tool_choice"] == {
-        "type": "tool", "name": "calculate_price",
+        "type": "tool",
+        "name": "calculate_price",
     }
     client2 = FakeClient()
     await AnthropicProvider(client=client2).complete(
@@ -184,6 +193,7 @@ def test_deepseek_provider_does_not_claim_caching_support():
 # --------------------------------------------------------------------------
 # FailoverProvider
 # --------------------------------------------------------------------------
+
 
 async def test_failover_stays_on_primary_below_threshold():
     primary = AnthropicProvider(client=FakeClient(error=RuntimeError("boom")))
@@ -231,8 +241,9 @@ async def test_failover_carries_the_forced_tool_choice_to_both_providers():
     )
     forced = {"type": "tool", "name": "find_next_available"}
 
-    await router.complete(model="m", messages=[], max_tokens=8,
-                          tools=[{"name": "x"}], tool_choice=forced)
+    await router.complete(
+        model="m", messages=[], max_tokens=8, tools=[{"name": "x"}], tool_choice=forced
+    )
 
     assert primary_client.messages.calls[0]["tool_choice"] == forced
     assert fallback_client.messages.calls[0]["tool_choice"] == forced
@@ -274,6 +285,7 @@ async def test_failover_success_resets_error_counter():
 # Сборка из настроек
 # --------------------------------------------------------------------------
 
+
 def test_default_models_for_each_provider():
     assert default_models_for("anthropic") == ("claude-sonnet-5", "claude-haiku-4-5-20251001")
     assert default_models_for("deepseek") == (DIALOG_MODEL, CLASSIFIER_MODEL)
@@ -289,7 +301,7 @@ def test_resolve_models_uses_defaults_when_unset():
 def test_resolve_models_respects_partial_override():
     settings = Settings(llm_classifier_model="ds-classifier-custom")
     dialog_model, classifier_model = resolve_models(settings)
-    assert dialog_model == "deepseek-v4-pro"          # не переопределён
+    assert dialog_model == "deepseek-v4-pro"  # не переопределён
     assert classifier_model == "ds-classifier-custom"  # переопределён
 
 
@@ -313,7 +325,7 @@ def test_build_provider_refuses_an_unknown_provider_loudly():
     """Провайдер выбирается один раз при старте — «не тот провайдер» должен
     падать там же, а не возвращаться молча чем-нибудь."""
     settings = Settings(deepseek_api_key="sk-test")
-    settings.llm_provider = "anthropic"     # мимо валидации, как это сделал бы старый .env
+    settings.llm_provider = "anthropic"  # мимо валидации, как это сделал бы старый .env
 
     with pytest.raises(ValueError, match="неизвестный провайдер"):
         build_provider(settings)

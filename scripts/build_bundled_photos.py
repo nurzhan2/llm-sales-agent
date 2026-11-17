@@ -21,8 +21,13 @@ def main() -> None:
             src = os.path.join("media", "photos", zone, entry["file"])
             image = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
             image.thumbnail((1280, 1280))
-            image.save(os.path.join(OUT, entry["image_id"] + ".jpg"), "JPEG",
-                       quality=82, optimize=True, progressive=True)
+            image.save(
+                os.path.join(OUT, entry["image_id"] + ".jpg"),
+                "JPEG",
+                quality=82,
+                optimize=True,
+                progressive=True,
+            )
 
 
 if __name__ == "__main__":

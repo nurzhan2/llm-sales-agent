@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
-from datetime import date as DateType, datetime, time as TimeType, timedelta
+from datetime import date as DateType
+from datetime import datetime, timedelta
+from datetime import time as TimeType
 from decimal import Decimal
-from typing import Any, Callable, Optional
+from typing import Any
 
 from app.agent.dates import resolve_relative_date
 from app.booking.readiness import auto_booking_blockers, describe_blockers
@@ -141,7 +144,7 @@ TOOLS: list[dict[str, Any]] = [
                 "guests": {"type": "integer"},
                 "extras": {
                     "type": "array",
-                    "description": "Доп. услуги: [[\"coal\", 1], [\"samovar\", 1]]",
+                    "description": 'Доп. услуги: [["coal", 1], ["samovar", 1]]',
                     "items": {"type": "array"},
                 },
                 "promo_hint": {
@@ -167,7 +170,12 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "enum": ["price_objection", "hours_objection", "going_silent", "soft_decline"],
+                        "enum": [
+                            "price_objection",
+                            "hours_objection",
+                            "going_silent",
+                            "soft_decline",
+                        ],
                     },
                     "description": "Что ты наблюдал в словах клиента",
                 },
@@ -189,9 +197,9 @@ TOOLS: list[dict[str, Any]] = [
             "Проверить занятость зоны на дату и время. Дата — строго YYYY-MM-DD; "
             "если клиент назвал её словами, сначала вызови resolve_date и передай "
             "сюда его результат, а не свои вычисления. Если вернулся status "
-            "\"unknown\" — свободно или нет, мы не знаем: скажи, что вопрос передан "
+            '"unknown" — свободно или нет, мы не знаем: скажи, что вопрос передан '
             "менеджеру, и вызови escalate_to_human. Не выдумывай, что свободно. "
-            "При status \"busy\" в ответе уже лежит СПИСОК СВОБОДНЫХ СОСЕДНИХ ЗОН "
+            'При status "busy" в ответе уже лежит СПИСОК СВОБОДНЫХ СОСЕДНИХ ЗОН '
             "(поле alternatives) — назови их клиенту, искать самому ничего не надо."
         ),
         "input_schema": {
@@ -204,7 +212,7 @@ TOOLS: list[dict[str, Any]] = [
                 "guests": {
                     "type": "integer",
                     "description": "Сколько гостей — по нему подбираются "
-                                   "альтернативы, если запрошенная зона занята",
+                    "альтернативы, если запрошенная зона занята",
                 },
             },
             "required": ["zone_id", "date"],
@@ -222,7 +230,7 @@ TOOLS: list[dict[str, Any]] = [
             "booked=true — время придержано. booked=false — брони НЕТ: скажи "
             "клиенту ровно то, что написано в instruction, и не выдавай это за "
             "подтверждённую бронь. Отдельный случай "
-            "status=\"handed_off_to_operator\": данные ушли менеджеру, он "
+            'status="handed_off_to_operator": данные ушли менеджеру, он '
             "поставит бронь сам — это нормальный исход, "
             "а не сбой."
         ),
@@ -300,7 +308,9 @@ TOOLS: list[dict[str, Any]] = [
         ),
         "input_schema": {
             "type": "object",
-            "properties": {"topic": {"type": "string", "description": "Тема вопроса своими словами"}},
+            "properties": {
+                "topic": {"type": "string", "description": "Тема вопроса своими словами"}
+            },
             "required": ["topic"],
         },
     },
@@ -310,6 +320,7 @@ TOOLS: list[dict[str, Any]] = [
 # --------------------------------------------------------------------------
 # Сериализация
 # --------------------------------------------------------------------------
+
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
@@ -416,7 +427,7 @@ FIND_NEXT_AVAILABLE_HORIZON_DAYS = 14
 FIND_NEXT_AVAILABLE_DEFAULT_LIMIT = 3
 
 
-def _parse_date(value: Optional[str]) -> Optional[DateType]:
+def _parse_date(value: str | None) -> DateType | None:
     if not value:
         return None
     try:
@@ -425,7 +436,7 @@ def _parse_date(value: Optional[str]) -> Optional[DateType]:
         return None
 
 
-def _parse_time(value: Optional[str]) -> Optional[TimeType]:
+def _parse_time(value: str | None) -> TimeType | None:
     if not value:
         return None
     try:
@@ -469,7 +480,7 @@ class ToolExecutor:
         self,
         kb: KnowledgeBase,
         dialog_id: str,
-        state: Optional[DialogConcessionState] = None,
+        state: DialogConcessionState | None = None,
         photo_provider: Any = None,
         lead_sink: Any = None,
         booking_provider: Any = None,
@@ -555,16 +566,16 @@ class ToolExecutor:
         self.booking_handoff_notifier = booking_handoff_notifier
         # Последняя карточка передачи оператору за ход. Нужна конвейеру и
         # тестам, чтобы увидеть ПОЛЯ карточки, а не только факт вызова.
-        self.booking_handoff: Optional[dict] = None
+        self.booking_handoff: dict | None = None
         self.escalated = False
-        self.escalation_reason: Optional[str] = None
-        self.last_quote: Optional[PriceQuote] = None
+        self.escalation_reason: str | None = None
+        self.last_quote: PriceQuote | None = None
         # Дата брони не входит в PriceQuote (котировка описывает стоимость, а
         # не календарь), но нужна движку уступок — он сам проверяет по ней
         # праздник, а не верит булеву флагу от вызывающего кода.
-        self.last_booking_date: Optional[DateType] = None
-        self.last_start_time: Optional[TimeType] = None
-        self.last_hours: Optional[int] = None
+        self.last_booking_date: DateType | None = None
+        self.last_start_time: TimeType | None = None
+        self.last_hours: int | None = None
         # Кеш ответов провайдера за один ход: (zone, date, start, hours) ->
         # Availability. `check_availability` и проверка слота при уступке
         # спрашивают ПРО ОДИН И ТОТ ЖЕ слот в одном ходу — второй сетевой
@@ -588,9 +599,11 @@ class ToolExecutor:
             logger.exception("tool failed", extra={"tool": name})
             return {
                 "error": f"{type(exc).__name__}: {exc}",
-                "instruction": ("Не сообщай клиенту об ошибке. Скажи, что вопрос передан "
-                                "менеджеру, и предложи написать, если нужно что-то ещё. "
-                                "Не обещай вернуться и не обещай звонок."),
+                "instruction": (
+                    "Не сообщай клиенту об ошибке. Скажи, что вопрос передан "
+                    "менеджеру, и предложи написать, если нужно что-то ещё. "
+                    "Не обещай вернуться и не обещай звонок."
+                ),
             }
 
     # -- зоны ---------------------------------------------------------------
@@ -677,21 +690,31 @@ class ToolExecutor:
         result = quote_to_dict(final)
         if final.status == "ok":
             warning = await self._busy_slot_warning(
-                final.zone_id or request.zone_id, date_value,
-                request.start_time, request.hours,
+                final.zone_id or request.zone_id,
+                date_value,
+                request.start_time,
+                request.hours,
             )
             if warning:
                 result.update(warning)
             else:
                 await self._hold_slot(
-                    final.zone_id or request.zone_id, date_value,
-                    request.start_time, request.hours, ttl_kind="quote",
+                    final.zone_id or request.zone_id,
+                    date_value,
+                    request.start_time,
+                    request.hours,
+                    ttl_kind="quote",
                 )
         return result
 
     async def _hold_slot(
-        self, zone_id: str, date_value: DateType, start_time: Optional[TimeType],
-        hours: Optional[int], *, ttl_kind: str,
+        self,
+        zone_id: str,
+        date_value: DateType,
+        start_time: TimeType | None,
+        hours: int | None,
+        *,
+        ttl_kind: str,
     ) -> None:
         """Предварительная бронь за этим чатом (app/booking/holds.py)."""
         if self.hold_store is None or start_time is None or not hours:
@@ -702,16 +725,23 @@ class ToolExecutor:
 
         try:
             await self.hold_store.add(
-                zone_id, date_value, start_time, int(hours), self.dialog_id,
+                zone_id,
+                date_value,
+                start_time,
+                int(hours),
+                self.dialog_id,
                 ttl=HANDOFF_TTL if ttl_kind == "handoff" else QUOTE_TTL,
             )
         except Exception:
             logger.exception("hold was not saved", extra={"chat_id": self.dialog_id})
 
     async def _busy_slot_warning(
-        self, zone_id: str, date_value: DateType,
-        start_time: Optional[TimeType], hours: Optional[int],
-    ) -> Optional[dict]:
+        self,
+        zone_id: str,
+        date_value: DateType,
+        start_time: TimeType | None,
+        hours: int | None,
+    ) -> dict | None:
         """Страховка от накладок: цена посчитана на ЗАНЯТОЕ время.
 
         Живой случай 2026-10-15: бот проверил занятость один раз без
@@ -848,8 +878,11 @@ class ToolExecutor:
         return max((self.last_booking_date - moscow_today()).days, 0)
 
     async def _availability_for(
-        self, zone_id: str, date_value: DateType,
-        start_time: Optional[TimeType], hours: Optional[int],
+        self,
+        zone_id: str,
+        date_value: DateType,
+        start_time: TimeType | None,
+        hours: int | None,
     ):
         """Ответ провайдера про КОНКРЕТНЫЙ слот, с кешем на один ход.
 
@@ -869,7 +902,10 @@ class ToolExecutor:
 
         try:
             availability = await self.booking_provider.check_availability(
-                zone_id=zone_id, date=date_value, start_time=start_time, hours=hours,
+                zone_id=zone_id,
+                date=date_value,
+                start_time=start_time,
+                hours=hours,
             )
         except Exception:
             logger.exception(
@@ -881,17 +917,25 @@ class ToolExecutor:
             )
 
         if (
-            self.hold_store is not None and start_time is not None
+            self.hold_store is not None
+            and start_time is not None
             and availability.status == AvailabilityStatus.FREE
         ):
             taken = await self.hold_store.conflicts(
-                zone_id, date_value, start_time, hours, self.dialog_id,
+                zone_id,
+                date_value,
+                start_time,
+                hours,
+                self.dialog_id,
             )
             if taken:
                 logger.warning(
                     "slot is free in YCLIENTS but promised to another chat",
-                    extra={"zone_id": zone_id, "date": str(date_value),
-                           "holds": [h.owner for h in taken]},
+                    extra={
+                        "zone_id": zone_id,
+                        "date": str(date_value),
+                        "holds": [h.owner for h in taken],
+                    },
                 )
                 availability = Availability(
                     status=AvailabilityStatus.BUSY,
@@ -1004,8 +1048,10 @@ class ToolExecutor:
             return {**unknown, "reason": availability.reason}
         if availability.status.value == "busy":
             alternatives = await self._free_neighbours(
-                args.get("zone_id", ""), booking_date,
-                _parse_time(args.get("start_time")), args.get("hours"),
+                args.get("zone_id", ""),
+                booking_date,
+                _parse_time(args.get("start_time")),
+                args.get("hours"),
                 args.get("guests"),
             )
             payload = {
@@ -1037,8 +1083,11 @@ class ToolExecutor:
         return {"status": "free", "free_slots": list(availability.free_slots)}
 
     async def _day_view(
-        self, availability, booking_date: DateType, zone_id: str,
-    ) -> Optional[dict]:
+        self,
+        availability,
+        booking_date: DateType,
+        zone_id: str,
+    ) -> dict | None:
         """Ответ на вопрос «свободно ли на дату» без времени.
 
         Живой случай 2026-10-15 (гриль-домик, 24.10, «на весь день»): FREE
@@ -1054,7 +1103,8 @@ class ToolExecutor:
             # уже проверен на весь день 10:00–22:00 провайдером.
             return None
         windows = busy_windows(
-            tuple(availability.free_slots), availability.seance_seconds,
+            tuple(availability.free_slots),
+            availability.seance_seconds,
             include_morning=booking_date > self._today_fn(),
         )
         if self.hold_store is not None:
@@ -1082,9 +1132,12 @@ class ToolExecutor:
     MAX_ALTERNATIVES = 3
 
     async def _free_neighbours(
-        self, busy_zone_id: str, date_value: DateType,
-        start_time: Optional[TimeType], hours: Optional[int],
-        guests: Optional[int],
+        self,
+        busy_zone_id: str,
+        date_value: DateType,
+        start_time: TimeType | None,
+        hours: int | None,
+        guests: int | None,
     ) -> list[dict]:
         """Соседние зоны, свободные на ТО ЖЕ время, — готовым списком.
 
@@ -1124,18 +1177,18 @@ class ToolExecutor:
                 continue
             if guests and zone.capacity.is_resolved() and zone.capacity.value < guests:
                 continue
-            availability = await self._availability_for(
-                zone.id, date_value, start_time, hours
-            )
+            availability = await self._availability_for(zone.id, date_value, start_time, hours)
             if availability is None or not availability.is_known:
                 continue
             if availability.status.value != "free":
                 continue
-            found.append({
-                "zone_id": zone.id,
-                "name": zone.name,
-                "capacity": zone.capacity.value if zone.capacity.is_resolved() else None,
-            })
+            found.append(
+                {
+                    "zone_id": zone.id,
+                    "name": zone.name,
+                    "capacity": zone.capacity.value if zone.capacity.is_resolved() else None,
+                }
+            )
         return found
 
     def _zone_id_from(self, args: dict) -> str:
@@ -1151,13 +1204,11 @@ class ToolExecutor:
             return zone_id
         return self.listing_zone_id if self.listing_zone_id in known else ""
 
-    def _search_window(self, args: dict) -> tuple[DateType, int, Optional[int]]:
+    def _search_window(self, args: dict) -> tuple[DateType, int, int | None]:
         """(с какой даты, сколько дат, часы). «date» — синоним «from_date»:
         модель путает имя параметра, и дата клиента молча терялась."""
         today = self._today_fn()
-        from_date = (
-            _parse_date(args.get("from_date")) or _parse_date(args.get("date")) or today
-        )
+        from_date = _parse_date(args.get("from_date")) or _parse_date(args.get("date")) or today
         from_date = max(from_date, today)
         limit = args.get("limit") or FIND_NEXT_AVAILABLE_DEFAULT_LIMIT
         limit = max(1, min(int(limit), FIND_NEXT_AVAILABLE_HORIZON_DAYS))
@@ -1192,11 +1243,13 @@ class ToolExecutor:
                     unknown += 1
                     continue
                 if availability.status.value == "free" and availability.free_slots:
-                    zones.append({
-                        "zone_id": zone.id,
-                        "name": zone.name,
-                        "free_slots": list(availability.free_slots),
-                    })
+                    zones.append(
+                        {
+                            "zone_id": zone.id,
+                            "name": zone.name,
+                            "free_slots": list(availability.free_slots),
+                        }
+                    )
             if zones:
                 days.append({"date": current.isoformat(), "zones": zones})
             current += timedelta(days=1)
@@ -1281,7 +1334,9 @@ class ToolExecutor:
             if availability is None or not availability.is_known:
                 unknown_days += 1
             elif availability.status.value == "free" and availability.free_slots:
-                found.append({"date": current.isoformat(), "free_slots": list(availability.free_slots)})
+                found.append(
+                    {"date": current.isoformat(), "free_slots": list(availability.free_slots)}
+                )
             current += timedelta(days=1)
 
         if not found and unknown_days:
@@ -1309,7 +1364,7 @@ class ToolExecutor:
         return {
             "dates": found,
             "instruction": (
-                "Даты идут по возрастанию. \"Свободна\" здесь значит, что на эту "
+                'Даты идут по возрастанию. "Свободна" здесь значит, что на эту '
                 "дату вообще есть открытые слоты — прежде чем называть цену или "
                 "фиксировать выбор клиента, подтверди конкретное время через "
                 "check_availability."
@@ -1373,7 +1428,8 @@ class ToolExecutor:
             if blockers:
                 logger.error(
                     "AUTO_BOOKING_ENABLED=true, но автобронирование не готово — "
-                    "бронь не ставится: %s", describe_blockers(blockers),
+                    "бронь не ставится: %s",
+                    describe_blockers(blockers),
                     extra={"chat_id": self.dialog_id},
                 )
                 return {
@@ -1395,9 +1451,14 @@ class ToolExecutor:
         booking_date = _parse_date(args.get("date"))
         start_time = _parse_time(args.get("start_time"))
         if booking_date is None or start_time is None:
-            return {"booked": False, "status": "needs_input",
-                    "missing_fields": [f for f, v in (("date", booking_date), ("start_time", start_time)) if v is None],
-                    "instruction": "Уточни у клиента недостающее и повтори."}
+            return {
+                "booked": False,
+                "status": "needs_input",
+                "missing_fields": [
+                    f for f, v in (("date", booking_date), ("start_time", start_time)) if v is None
+                ],
+                "instruction": "Уточни у клиента недостающее и повтори.",
+            }
         if booking_date < self._today_fn():
             return {
                 "booked": False,
@@ -1490,7 +1551,8 @@ class ToolExecutor:
         )
         if not result.success:
             logger.warning(
-                "booking failed", extra={"chat_id": self.dialog_id, "error": result.error},
+                "booking failed",
+                extra={"chat_id": self.dialog_id, "error": result.error},
             )
             return {
                 "booked": False,
@@ -1524,18 +1586,25 @@ class ToolExecutor:
             try:
                 await self.booking_sink.save(**record)
             except Exception:
-                logger.exception("booking saved in YCLIENTS but not in our DB",
-                                 extra={"chat_id": self.dialog_id, "record_id": result.booking_id})
+                logger.exception(
+                    "booking saved in YCLIENTS but not in our DB",
+                    extra={"chat_id": self.dialog_id, "record_id": result.booking_id},
+                )
         if self.booking_notifier is not None:
             try:
                 await self.booking_notifier(record)
             except Exception:
-                logger.exception("booking notification failed",
-                                 extra={"chat_id": self.dialog_id})
+                logger.exception("booking notification failed", extra={"chat_id": self.dialog_id})
 
-        logger.info("booking created",
-                    extra={"chat_id": self.dialog_id, "record_id": result.booking_id,
-                           "zone_id": zone_id, "occupied_hours": int(occupied_hours)})
+        logger.info(
+            "booking created",
+            extra={
+                "chat_id": self.dialog_id,
+                "record_id": result.booking_id,
+                "zone_id": zone_id,
+                "occupied_hours": int(occupied_hours),
+            },
+        )
         return {
             "booked": True,
             "record_id": result.booking_id,
@@ -1595,7 +1664,11 @@ class ToolExecutor:
         }
         self.booking_handoff = card
         await self._hold_slot(
-            zone_id, booking_date, start_time, occupied_hours, ttl_kind="handoff",
+            zone_id,
+            booking_date,
+            start_time,
+            occupied_hours,
+            ttl_kind="handoff",
         )
         # Эскалация ставится ДО отправки карточки: недоступный Telegram не
         # должен превращать передачу в обычный ход агента.
@@ -1638,7 +1711,7 @@ class ToolExecutor:
             ),
         }
 
-    def _zone_name(self, zone_id: str) -> Optional[str]:
+    def _zone_name(self, zone_id: str) -> str | None:
         """Человеческое название зоны для карточки оператору — читать
         «Русская баня» быстрее, чем сопоставлять bath_russian с календарём."""
         for zone in self.kb.catalog.zones:
@@ -1669,7 +1742,8 @@ class ToolExecutor:
         if a is not None and b is not None and a.category == b.category:
             logger.warning(
                 "get_photos: просили %s, а посчитана %s - шлём фото посчитанной",
-                requested, quoted,
+                requested,
+                quoted,
             )
             return quoted
         return requested
@@ -1707,15 +1781,15 @@ class ToolExecutor:
         already = set(await self.sent_photos()) if self.sent_photos else set()
         fresh = [p for p in photos if p not in already and p not in self.photos_to_send]
         room = PHOTOS_PER_TURN - len(self.photos_to_send)
-        batch = fresh[:max(room, 0)]
+        batch = fresh[: max(room, 0)]
         self.photos_to_send.extend(batch)
 
         if not batch:
             reason = (
                 "Все фотографии этой зоны клиенту уже отправлены в этом чате. "
                 "Не обещай новых — предложи приехать посмотреть территорию."
-                if not fresh else
-                f"В одном сообщении не больше {PHOTOS_PER_TURN} фото, лимит "
+                if not fresh
+                else f"В одном сообщении не больше {PHOTOS_PER_TURN} фото, лимит "
                 "уже исчерпан другой зоной. Предложи прислать эти следующим "
                 "сообщением, если клиент попросит."
             )

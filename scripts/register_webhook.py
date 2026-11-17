@@ -43,8 +43,7 @@ async def main() -> int:
                 return 2
             result = await admin.subscribe(args.base_url)
             # Секрет в консоль не печатаем.
-            print(f"Подписка зарегистрирована на "
-                  f"{admin.webhook_url_for_display(args.base_url)}")
+            print(f"Подписка зарегистрирована на {admin.webhook_url_for_display(args.base_url)}")
             print(result)
         else:
             parser.print_help()

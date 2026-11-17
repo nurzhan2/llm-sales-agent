@@ -13,7 +13,7 @@ from datetime import date
 
 from app.agent.dates import resolve_relative_date
 
-TODAY = date(2026, 8, 27)   # конец августа 2026 — тот же живой случай
+TODAY = date(2026, 8, 27)  # конец августа 2026 — тот же живой случай
 
 
 def test_day_and_month_without_year_picks_the_nearest_future_date():

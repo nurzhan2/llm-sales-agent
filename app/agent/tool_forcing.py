@@ -80,7 +80,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 # Слова, по которым видно, что зона в разговоре УЖЕ названа. Это не полный
 # каталог, а корни его категорий и опознавательные слова вариантов внутри
@@ -211,13 +210,11 @@ def price_slot_known(context: str) -> bool:
     а второе поле модель спросит одним вопросом.
     """
     return bool(
-        ZONE_WORDS.search(context)
-        or CONCRETE_DATE.search(context)
-        or RELATIVE_DATE.search(context)
+        ZONE_WORDS.search(context) or CONCRETE_DATE.search(context) or RELATIVE_DATE.search(context)
     )
 
 
-def forced_tool_for(client_text: str, context: str = "") -> Optional[str]:
+def forced_tool_for(client_text: str, context: str = "") -> str | None:
     """Имя инструмента, который обязан быть вызван, либо None.
 
     `context` — то, что клиент уже сказал в этом разговоре (и зона из

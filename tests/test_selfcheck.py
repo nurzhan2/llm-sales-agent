@@ -4,15 +4,20 @@
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.kb.loader import load_catalog
 from app.ops.selfcheck import (
-    Facts, ListingFact, OverrideFact, analyze, seconds_until, supervised_selfcheck,
+    Facts,
+    ListingFact,
+    OverrideFact,
+    analyze,
+    seconds_until,
+    supervised_selfcheck,
     zone_prices,
 )
 
-NOW = datetime(2026, 10, 9, 6, 0, tzinfo=timezone.utc)   # 09:00 МСК
+NOW = datetime(2026, 10, 9, 6, 0, tzinfo=UTC)  # 09:00 МСК
 KB = load_catalog()
 
 
@@ -23,10 +28,15 @@ def L(item_id, title, price, zone=None, cat=None, denied=False):
 def test_all_good_is_one_line_ok():
     facts = Facts(
         now=NOW,
-        listings=[L("1", "Гриль-домик в Троицке", 1500, "grill_house"),
-                  L("2", "Купольная беседка", 1000, None, "dome")],
-        zone_staff={"grill_house": "5456508"}, yclients_staff={"5456508"},
-        availability={"grill_house": "free"}, overrides=[], photo_ok=True,
+        listings=[
+            L("1", "Гриль-домик в Троицке", 1500, "grill_house"),
+            L("2", "Купольная беседка", 1000, None, "dome"),
+        ],
+        zone_staff={"grill_house": "5456508"},
+        yclients_staff={"5456508"},
+        availability={"grill_house": "free"},
+        overrides=[],
+        photo_ok=True,
         stats={"incoming": 5, "sent": 5, "failed": 0},
     )
     report = analyze(facts, KB)
@@ -37,58 +47,86 @@ def test_all_good_is_one_line_ok():
 def test_listing_that_switched_to_dome_prices_is_flagged():
     # 08.10: беседки по цене купола висели на гриль-домике. С 15.10 будни
     # гриль-домика 999 ₽, поэтому пример — объявление заметно дешевле.
-    report = analyze(Facts(now=NOW, listings=[
-        L("7948042872", "Теплые беседки с мангалом в Ватутинках", 500, "grill_house"),
-    ]), KB)
+    report = analyze(
+        Facts(
+            now=NOW,
+            listings=[
+                L("7948042872", "Теплые беседки с мангалом в Ватутинках", 500, "grill_house"),
+            ],
+        ),
+        KB,
+    )
     assert any("ниже минимальной" in w for w in report.warnings)
 
 
 def test_unmapped_listing_uses_title_and_unknown_one_is_flagged():
-    report = analyze(Facts(now=NOW, listings=[
-        L("a", "Баня на дровах «Замок рыцаря»", 2500),
-        L("b", "Что-то совсем новое", 3000),
-        L("c", "Продажа корпусов", 10**7, denied=True),
-    ]), KB)
+    report = analyze(
+        Facts(
+            now=NOW,
+            listings=[
+                L("a", "Баня на дровах «Замок рыцаря»", 2500),
+                L("b", "Что-то совсем новое", 3000),
+                L("c", "Продажа корпусов", 10**7, denied=True),
+            ],
+        ),
+        KB,
+    )
     assert len(report.warnings) == 1 and "«Что-то совсем новое»" in report.warnings[0]
 
 
 def test_guest_priced_tent_is_not_price_checked():
     tent = next(z for z in KB.catalog.zones if z.id == "tent")
     assert zone_prices(tent) is None
-    report = analyze(Facts(now=NOW, listings=[
-        L("t", "Теплый шатер30 человек", 1999, "tent")]), KB)
+    report = analyze(Facts(now=NOW, listings=[L("t", "Теплый шатер30 человек", 1999, "tent")]), KB)
     assert report.ok
 
 
 def test_missing_yclients_resource_is_a_problem_once():
     # Юрту удалили из YCLIENTS: одна строка про ресурс, без второй про «unknown».
-    report = analyze(Facts(
-        now=NOW, zone_staff={"yurt": "5877555", "tent": "5861184"},
-        yclients_staff={"5861184"}, availability={"yurt": "unknown", "tent": "free"},
-    ), KB)
+    report = analyze(
+        Facts(
+            now=NOW,
+            zone_staff={"yurt": "5877555", "tent": "5861184"},
+            yclients_staff={"5861184"},
+            availability={"yurt": "unknown", "tent": "free"},
+        ),
+        KB,
+    )
     assert len(report.problems) == 1 and "yurt" in report.problems[0]
 
 
 def test_old_override_warns_young_one_does_not():
-    report = analyze(Facts(now=NOW, overrides=[
-        OverrideFact(1, "$.x", 1500, NOW - timedelta(days=33)),
-        OverrideFact(2, "$.y", 1000, NOW - timedelta(days=1)),
-    ]), KB)
+    report = analyze(
+        Facts(
+            now=NOW,
+            overrides=[
+                OverrideFact(1, "$.x", 1500, NOW - timedelta(days=33)),
+                OverrideFact(2, "$.y", 1000, NOW - timedelta(days=1)),
+            ],
+        ),
+        KB,
+    )
     assert len(report.warnings) == 1 and "#1" in report.warnings[0]
 
 
 def test_photo_failure_silent_chats_and_failed_checks():
-    report = analyze(Facts(
-        now=NOW, photo_ok=False, silent_chats=["u2i-a"], stats={"failed": 4},
-        errors=["ресурсы YCLIENTS (HTTPStatusError: 500)"],
-    ), KB)
+    report = analyze(
+        Facts(
+            now=NOW,
+            photo_ok=False,
+            silent_chats=["u2i-a"],
+            stats={"failed": 4},
+            errors=["ресурсы YCLIENTS (HTTPStatusError: 500)"],
+        ),
+        KB,
+    )
     text = report.render()
     assert report.problems and report.warnings
     assert text.startswith("🔴") and "u2i-a" in text and "YCLIENTS" in text
 
 
 def test_seconds_until_next_9_msk():
-    assert seconds_until(9, NOW) == 24 * 3600          # ровно 09:00 -> завтра
+    assert seconds_until(9, NOW) == 24 * 3600  # ровно 09:00 -> завтра
     assert seconds_until(9, NOW - timedelta(hours=1)) == 3600
 
 
@@ -117,7 +155,7 @@ def test_scheduler_survives_a_failed_run():
 
 def test_railway_config_deadline_reminder_only_from_november():
     assert analyze(Facts(now=NOW), KB).ok
-    later = analyze(Facts(now=datetime(2026, 11, 20, tzinfo=timezone.utc)), KB)
+    later = analyze(Facts(now=datetime(2026, 11, 20, tzinfo=UTC)), KB)
     assert any("railway.toml" in w for w in later.warnings)
 
 
@@ -127,11 +165,17 @@ def test_guard_counts_are_read_from_llm_meta_and_warn_when_frequent():
     metas = [
         {"guard_rail": "занятость без вызова check_availability (последний рубеж)"},
         '{"false_hold_guard": true}',
-        {"guard_rail": "amount_mismatch"}, None, "not json", {"cost_rub": "0.4"},
+        {"guard_rail": "amount_mismatch"},
+        None,
+        "not json",
+        {"cost_rub": "0.4"},
     ]
     counts = count_guards(metas)
-    assert counts == {"занятость без вызова check_availability": 1,
-                      "бронь на словах": 1, "amount_mismatch": 1}
+    assert counts == {
+        "занятость без вызова check_availability": 1,
+        "бронь на словах": 1,
+        "amount_mismatch": 1,
+    }
     assert analyze(Facts(now=NOW, guard_counts=counts), KB).ok
     many = analyze(Facts(now=NOW, guard_counts={"бронь на словах": 6}), KB)
     assert any("Защита поправила" in w for w in many.warnings)

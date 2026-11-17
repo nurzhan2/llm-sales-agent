@@ -15,9 +15,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("parmangal.admin.queries")
 
@@ -110,10 +110,14 @@ class SqlAlchemyAdminQueries:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(Lead).order_by(Lead.created_at.desc(), Lead.id.desc()).limit(limit)
+                (
+                    await session.execute(
+                        select(Lead).order_by(Lead.created_at.desc(), Lead.id.desc()).limit(limit)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
         return [
             {
@@ -138,17 +142,21 @@ class SqlAlchemyAdminQueries:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(ConcessionLog)
-                    # Только выданные: страница называется «журнал уступок» и
-                    # считает недополученную выручку. Отказы там же исказили бы
-                    # сумму — они пишутся в лог по правилу R12 ради разбора
-                    # «почему не дали», а не ради денег.
-                    .where(ConcessionLog.allowed.is_(True))
-                    .order_by(ConcessionLog.created_at.desc(), ConcessionLog.id.desc())
-                    .limit(limit)
+                (
+                    await session.execute(
+                        select(ConcessionLog)
+                        # Только выданные: страница называется «журнал уступок» и
+                        # считает недополученную выручку. Отказы там же исказили бы
+                        # сумму — они пишутся в лог по правилу R12 ради разбора
+                        # «почему не дали», а не ради денег.
+                        .where(ConcessionLog.allowed.is_(True))
+                        .order_by(ConcessionLog.created_at.desc(), ConcessionLog.id.desc())
+                        .limit(limit)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
         return [
             {
@@ -183,13 +191,12 @@ class SqlAlchemyAdminQueries:
 
         from app.db.models import Direction, Message
 
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since = datetime.now(UTC) - timedelta(days=days)
 
         async with self._session_factory() as session:
             rows = (
                 await session.execute(
-                    select(Message.chat_id, Message.llm_meta, Message.created_at)
-                    .where(
+                    select(Message.chat_id, Message.llm_meta, Message.created_at).where(
                         Message.direction == Direction.outgoing,
                         Message.llm_meta.is_not(None),
                         Message.created_at >= since,
@@ -249,11 +256,9 @@ class SqlAlchemyAdminQueries:
         from app.channels.daily_limit import MOSCOW_TZ
         from app.db.models import Direction, Message
 
-        now_msk = datetime.now(timezone.utc).astimezone(MOSCOW_TZ)
-        midnight_msk = datetime.combine(
-            now_msk.date(), time(0, 0), tzinfo=MOSCOW_TZ
-        )
-        since = midnight_msk.astimezone(timezone.utc)
+        now_msk = datetime.now(UTC).astimezone(MOSCOW_TZ)
+        midnight_msk = datetime.combine(now_msk.date(), time(0, 0), tzinfo=MOSCOW_TZ)
+        since = midnight_msk.astimezone(UTC)
 
         async with self._session_factory() as session:
             rows = (
@@ -274,7 +279,7 @@ class SqlAlchemyAdminQueries:
 
     # -- /stats в Telegram --------------------------------------------------
 
-    async def stats(self, ops_store: Optional[Any] = None) -> dict:
+    async def stats(self, ops_store: Any | None = None) -> dict:
         """Данные для `render_stats` — команда /stats операторского бота.
 
         `ops_store` нужен ради счётчиков модерации: у БД-реализации они
@@ -284,7 +289,7 @@ class SqlAlchemyAdminQueries:
         """
         from sqlalchemy import func, select
 
-        from app.db.models import Chat, ConcessionLog, Lead
+        from app.db.models import Chat, Lead
 
         async with self._session_factory() as session:
             dialogs = (await session.execute(select(func.count()).select_from(Chat))).scalar() or 0

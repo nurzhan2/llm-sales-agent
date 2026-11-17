@@ -1,11 +1,10 @@
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-from alembic import context
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -28,9 +27,6 @@ if config.config_file_name is not None:
 
 # Models and connection URL come from the application, so migrations and
 # runtime can never drift apart or point at different databases.
-from app.config import get_settings  # noqa: E402
-from app.db.models import Base  # noqa: E402
-
 # ZoneServiceMap живёт в app/booking/mapping.py, не в app/db/models.py —
 # без этого импорта её таблица никогда не регистрируется на Base.metadata,
 # и autogenerate её просто не видит: воспроизведено на пустой базе — первый
@@ -41,6 +37,8 @@ from app.db.models import Base  # noqa: E402
 # регистрация нужна именно здесь, в единственном месте, которому требуется
 # ПОЛНАЯ metadata.
 import app.booking.mapping  # noqa: E402,F401
+from app.config import get_settings  # noqa: E402
+from app.db.models import Base  # noqa: E402
 
 # Та же нормализация, что и в app/db/session.py: Railway отдаёт postgres://
 # и может дописать sslmode=require, которого asyncpg не понимает как часть

@@ -40,7 +40,7 @@ DEVELOPMENT = "разработка"
 @dataclass(frozen=True)
 class Blocker:
     code: str
-    owner: str     # CUSTOMER | DEVELOPMENT — чьё решение или чья работа
+    owner: str  # CUSTOMER | DEVELOPMENT — чьё решение или чья работа
     text: str
 
 
@@ -50,29 +50,41 @@ def auto_booking_blockers(kb: Any) -> list[Blocker]:
     blockers: list[Blocker] = []
 
     if payment.handoff_on_payment_step:
-        blockers.append(Blocker(
-            "handoff", CUSTOMER,
-            "этап оплаты передаётся человеку (payment.handoff_on_payment_step: "
-            "true в app/kb/payment.yaml) — пока так, бронь в календаре ставит "
-            "оператор",
-        ))
+        blockers.append(
+            Blocker(
+                "handoff",
+                CUSTOMER,
+                "этап оплаты передаётся человеку (payment.handoff_on_payment_step: "
+                "true в app/kb/payment.yaml) — пока так, бронь в календаре ставит "
+                "оператор",
+            )
+        )
     if not payment.link_type.is_resolved():
-        blockers.append(Blocker(
-            "link_type", CUSTOMER,
-            "не решено, какая ссылка на оплату: одна на зону или своя на "
-            "каждую бронь (вопрос 9.4)",
-        ))
+        blockers.append(
+            Blocker(
+                "link_type",
+                CUSTOMER,
+                "не решено, какая ссылка на оплату: одна на зону или своя на "
+                "каждую бронь (вопрос 9.4)",
+            )
+        )
     if not ep.PAYMENT_LINK_SUPPORTED:
-        blockers.append(Blocker(
-            "payment_link", DEVELOPMENT,
-            "создание ссылки на оплату в YCLIENTS не подтверждено "
-            "(PAYMENT_LINK_SUPPORTED=False в app/booking/yclients_endpoints.py)",
-        ))
+        blockers.append(
+            Blocker(
+                "payment_link",
+                DEVELOPMENT,
+                "создание ссылки на оплату в YCLIENTS не подтверждено "
+                "(PAYMENT_LINK_SUPPORTED=False в app/booking/yclients_endpoints.py)",
+            )
+        )
     if not PAYMENT_GATE_IMPLEMENTED:
-        blockers.append(Blocker(
-            "payment_gate", DEVELOPMENT,
-            "нет проверки, что предоплата пришла, перед постановкой брони",
-        ))
+        blockers.append(
+            Blocker(
+                "payment_gate",
+                DEVELOPMENT,
+                "нет проверки, что предоплата пришла, перед постановкой брони",
+            )
+        )
     return blockers
 
 

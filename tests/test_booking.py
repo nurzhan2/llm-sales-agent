@@ -17,7 +17,7 @@ import respx
 
 from app.agent.tools import ToolExecutor
 from app.booking import yclients_endpoints as ep
-from app.booking.base import Availability, AvailabilityStatus, BookingProvider, BookingRequest
+from app.booking.base import AvailabilityStatus, BookingProvider, BookingRequest
 from app.booking.mapping import InMemoryZoneMapping, coverage_report
 from app.booking.noop import NoopBookingProvider
 from app.booking.yclients import SLOTS_CACHE_TTL, YClientsProvider
@@ -84,6 +84,7 @@ def payment_link_url(company="1") -> str:
 # monkeypatch обратно на False, а не через реальное состояние модуля.
 # --------------------------------------------------------------------------
 
+
 def test_spec_is_marked_verified():
     assert ep.SPEC_VERIFIED is True
 
@@ -108,6 +109,7 @@ async def test_unverified_spec_blocks_booking(mapping, monkeypatch):
 # --------------------------------------------------------------------------
 # Отсутствующий маппинг
 # --------------------------------------------------------------------------
+
 
 async def test_unmapped_zone_is_unknown(mapping, verified):
     """Неполный каталог услуг — ожидаемое состояние, а не ошибка."""
@@ -143,6 +145,7 @@ async def test_disabled_mapping_row_is_treated_as_missing(verified):
 # --------------------------------------------------------------------------
 # Сбои сервиса
 # --------------------------------------------------------------------------
+
 
 @respx.mock
 async def test_500_becomes_unknown_not_free(mapping, verified):
@@ -196,7 +199,9 @@ async def test_access_denied_becomes_unknown(mapping, verified, status):
 
 
 @respx.mock
-async def test_access_denied_logs_a_distinct_message_without_overclaiming_cause(mapping, verified, caplog):
+async def test_access_denied_logs_a_distinct_message_without_overclaiming_cause(
+    mapping, verified, caplog
+):
     """Разведка (scripts/inspect_yclients.py) нашла 403 на части методов при
     200 на соседних того же токена — «интеграция не подключена» была бы
     ложью в такой ситуации. Лог обязан называть ОБЕ возможные причины, а не
@@ -213,6 +218,7 @@ async def test_access_denied_logs_a_distinct_message_without_overclaiming_cause(
 # --------------------------------------------------------------------------
 # Нормальный ответ
 # --------------------------------------------------------------------------
+
 
 @respx.mock
 async def test_free_slot_is_reported_free(mapping, verified):
@@ -243,6 +249,7 @@ async def test_taken_slot_is_busy_and_offers_alternatives(mapping, verified):
 # --------------------------------------------------------------------------
 # Кеш
 # --------------------------------------------------------------------------
+
 
 @respx.mock
 async def test_slots_are_cached_for_60_seconds(mapping, verified):
@@ -285,8 +292,13 @@ async def test_booking_invalidates_cache(mapping, verified):
 
     result = await provider.create_booking(
         BookingRequest(
-            zone_id="bath_russian", date=DAY, start_time=time(14, 0), occupied_hours=3,
-            guests=6, client_name="Иван", client_phone="+79990000000",
+            zone_id="bath_russian",
+            date=DAY,
+            start_time=time(14, 0),
+            occupied_hours=3,
+            guests=6,
+            client_name="Иван",
+            client_phone="+79990000000",
         )
     )
 
@@ -297,6 +309,7 @@ async def test_booking_invalidates_cache(mapping, verified):
 # --------------------------------------------------------------------------
 # Часы занятости против оплаченных
 # --------------------------------------------------------------------------
+
 
 @respx.mock
 async def test_booking_blocks_occupied_hours_not_paid_hours(mapping, verified):
@@ -324,6 +337,7 @@ async def test_booking_blocks_occupied_hours_not_paid_hours(mapping, verified):
 # "Онлайн-запись" -> "Получить список услуг доступных для бронирования").
 # Раньше get_services() ждал список и получал [] на любом настоящем ответе.
 # --------------------------------------------------------------------------
+
 
 def services_url(company="1") -> str:
     return ep.BASE_URL + ep.SERVICES[1].format(company_id=company)
@@ -373,6 +387,7 @@ async def test_get_services_is_empty_when_services_key_is_missing(mapping, verif
 # разведка нашла 200 на первом и 403 на втором для одного токена.
 # --------------------------------------------------------------------------
 
+
 def staff_url(company="1") -> str:
     return ep.BASE_URL + ep.STAFF_FULL_LIST_DEPRECATED[1].format(company_id=company)
 
@@ -414,6 +429,7 @@ async def test_get_staff_is_empty_on_403(mapping, verified):
 # Оплата
 # --------------------------------------------------------------------------
 
+
 @respx.mock
 async def test_payment_link_unsupported_returns_none(mapping, verified):
     """Эндпоинт не подтверждён — этап оплаты остаётся за оператором.
@@ -434,7 +450,9 @@ async def test_payment_link_unsupported_returns_none(mapping, verified):
 
 async def test_noop_provider_never_promises_availability():
     provider = NoopBookingProvider()
-    assert (await provider.check_availability("bath_russian", DAY)).status is AvailabilityStatus.UNKNOWN
+    assert (
+        await provider.check_availability("bath_russian", DAY)
+    ).status is AvailabilityStatus.UNKNOWN
     assert (await provider.create_payment_link("1", Decimal("100"))) is None
 
 
@@ -446,6 +464,7 @@ def test_providers_satisfy_the_protocol():
 # --------------------------------------------------------------------------
 # Покрытие каталога
 # --------------------------------------------------------------------------
+
 
 def test_coverage_report_lists_mapped_and_unmapped(kb, mapping):
     all_ids = [z.id for z in kb.catalog.zones]
@@ -466,6 +485,7 @@ def test_empty_mapping_reports_zero_coverage(kb):
 # Подключение к агенту
 # --------------------------------------------------------------------------
 
+
 async def test_agent_tool_degrades_to_unknown(kb, mapping):
     provider = YClientsProvider(mapping=mapping)
     # today_fn зафиксирован ДО DAY: без него check_availability отклонит
@@ -474,7 +494,8 @@ async def test_agent_tool_degrades_to_unknown(kb, mapping):
     # совсем другой причине.
     ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: DAY - timedelta(days=1))
     result = await ex.run(
-        "check_availability", {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "14:00"}
+        "check_availability",
+        {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "14:00"},
     )
     assert result["status"] == "unknown"
     assert "escalate_to_human" in result["instruction"]
@@ -543,7 +564,7 @@ async def test_successful_response_with_no_seances_is_busy_not_unknown(mapping, 
     result = await provider.get_free_slots("bath_russian", DAY)
 
     assert result.status is AvailabilityStatus.BUSY
-    assert result.is_known is True          # мы ЗНАЕМ, что занято
+    assert result.is_known is True  # мы ЗНАЕМ, что занято
     assert result.free_slots == ()
 
 
@@ -578,7 +599,9 @@ async def test_unrecognised_shape_is_unknown_not_busy(mapping, verified):
     """Неразобранный ответ НЕ должен выдаваться за «занято»: сказать
     клиенту «занято» на основании непонятого ответа хуже, чем «уточню»."""
     respx.get(times_url()).mock(
-        return_value=httpx.Response(200, json={"success": True, "data": {"unexpected": 1}, "meta": []})
+        return_value=httpx.Response(
+            200, json={"success": True, "data": {"unexpected": 1}, "meta": []}
+        )
     )
     provider = YClientsProvider(mapping=mapping, company_id="1")
 
@@ -594,11 +617,14 @@ async def test_nested_seances_object_is_also_parsed(mapping, verified):
     объект {seance_date, seances: [...]}. Ошибиться формой здесь значит
     молча превратить рабочий ответ в unknown — разбираем оба варианта."""
     respx.get(times_url()).mock(
-        return_value=httpx.Response(200, json={
-            "success": True,
-            "data": {"seance_date": 1492041600, "seances": [{"time": "10:00"}]},
-            "meta": [],
-        })
+        return_value=httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {"seance_date": 1492041600, "seances": [{"time": "10:00"}]},
+                "meta": [],
+            },
+        )
     )
     provider = YClientsProvider(mapping=mapping, company_id="1")
 

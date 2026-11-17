@@ -15,13 +15,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
 
 BUNDLED_DIR = Path(__file__).resolve().parent / "bundled"
 _SAFE_ID = re.compile(r"^[0-9A-Za-z._-]+$")
 
 
-def bundled_photo_path(image_id: str) -> Optional[Path]:
+def bundled_photo_path(image_id: str) -> Path | None:
     if not image_id or not _SAFE_ID.match(image_id) or ".." in image_id:
         return None
     path = BUNDLED_DIR / f"{image_id}.jpg"

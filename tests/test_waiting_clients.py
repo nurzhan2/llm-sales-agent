@@ -18,6 +18,7 @@ from app.pipeline import MessagePipeline, _is_just_acknowledgement
 from tests.test_pipeline import (
     NOW,
     OUR_USER_ID,
+    _build,
     _FakeAgentLoop,
     _FakeAvito,
     _FakeOpsBot,
@@ -25,7 +26,6 @@ from tests.test_pipeline import (
     _payload,
     _settle,
     _take_over,
-    _build,
 )
 
 
@@ -46,8 +46,14 @@ async def _stranded(client_text="Как закрепить бронь?", minutes
     ops_bot = _FakeOpsBot()
     ops = OpsService(store=InMemoryOpsStore(), settings=settings)
     pipeline = MessagePipeline(
-        store=store, agent_loop=agent, ops_service=ops, settings=settings,
-        avito_client=avito, ops_bot=ops_bot, debounce_window_seconds=0, now_fn=lambda: NOW,
+        store=store,
+        agent_loop=agent,
+        ops_service=ops,
+        settings=settings,
+        avito_client=avito,
+        ops_bot=ops_bot,
+        debounce_window_seconds=0,
+        now_fn=lambda: NOW,
     )
     await store.get_or_create_chat("chat-1")
     await _take_over(ops, store, at=NOW - timedelta(hours=2))
@@ -57,8 +63,13 @@ async def _stranded(client_text="Как закрепить бронь?", minutes
 
 
 async def test_a_client_left_waiting_by_the_manager_gets_an_answer():
-    manager = {"id": "m-1", "author_id": OUR_USER_ID, "created": int((NOW - timedelta(hours=2)).timestamp()),
-               "content": {"text": "Баня Гараж свободна с 17:00"}, "type": "text"}
+    manager = {
+        "id": "m-1",
+        "author_id": OUR_USER_ID,
+        "created": int((NOW - timedelta(hours=2)).timestamp()),
+        "content": {"text": "Баня Гараж свободна с 17:00"},
+        "type": "text",
+    }
     pipeline, store, agent, avito, ops, ops_bot = await _stranded(history=[manager])
 
     rescued = await pipeline.rescue_waiting_clients()
@@ -93,8 +104,13 @@ async def test_an_old_abandoned_chat_is_not_revived():
 async def test_a_manager_reply_found_in_avito_cancels_the_rescue():
     """В базе ответа нет (до 30.10 тексты менеджера не сохранялись), а в
     Авито менеджер уже ответил - не вмешиваемся."""
-    late = {"id": "m-2", "author_id": OUR_USER_ID, "created": int((NOW - timedelta(minutes=5)).timestamp()),
-            "content": {"text": "Бронь закрепим по предоплате, сейчас пришлю ссылку"}, "type": "text"}
+    late = {
+        "id": "m-2",
+        "author_id": OUR_USER_ID,
+        "created": int((NOW - timedelta(minutes=5)).timestamp()),
+        "content": {"text": "Бронь закрепим по предоплате, сейчас пришлю ссылку"},
+        "type": "text",
+    }
     pipeline, store, agent, avito, ops, _ = await _stranded(history=[late])
 
     assert await pipeline.rescue_waiting_clients() == []
@@ -111,7 +127,9 @@ async def test_the_managers_text_goes_into_the_dialog_history():
     pipeline, store, agent, ops = _build()
     await store.get_or_create_chat("chat-1")
 
-    await pipeline.handle_message(_payload(author_id=OUR_USER_ID, text="Баня свободна с 17:00", message_id="m-9"))
+    await pipeline.handle_message(
+        _payload(author_id=OUR_USER_ID, text="Баня свободна с 17:00", message_id="m-9")
+    )
     await _settle()
 
     rows = store.messages["chat-1"]
@@ -124,7 +142,14 @@ async def test_the_managers_text_goes_into_the_dialog_history():
 
 
 def test_acknowledgements():
-    for text in ("Ок", "Спасибо!", "спасибо большое", "Хорошо 👍", "Я напишу вам позже", "Пока стоп"):
+    for text in (
+        "Ок",
+        "Спасибо!",
+        "спасибо большое",
+        "Хорошо 👍",
+        "Я напишу вам позже",
+        "Пока стоп",
+    ):
         assert _is_just_acknowledgement(text), text
     for text in ("Да", "С 14 до 17 бронь", "Как закрепить бронь ?", "Сегодня"):
         assert not _is_just_acknowledgement(text), text

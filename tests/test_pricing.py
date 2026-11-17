@@ -43,6 +43,7 @@ def q(kb, **kwargs):
 # 1. Every zone × weekday/weekend × minimum hours
 # ==========================================================================
 
+
 @pytest.mark.parametrize("zone_id,expected", [("bath_russian", 7500), ("bath_garage", 7500)])
 def test_bath_weekday_min_hours(kb, zone_id, expected):
     r = q(kb, zone_id=zone_id, date=THU, start_time=NOON, hours=3, guests=6)
@@ -70,13 +71,13 @@ def test_bath_knight_weekday_under_special_threshold_prices_normally(kb):
     """4 hours < the 5-hour special threshold, so the plain rate applies."""
     r = q(kb, zone_id="bath_knight", date=THU, start_time=NOON, hours=4, guests=4)
     assert r.status == "ok"
-    assert r.total == money(8000)   # 2000 ₽/ч в будни (заказчик 29.10)
+    assert r.total == money(8000)  # 2000 ₽/ч в будни (заказчик 29.10)
 
 
 def test_bath_knight_weekend_ignores_weekday_special(kb):
     r = q(kb, zone_id="bath_knight", date=SAT, start_time=NOON, hours=5, guests=4)
     assert r.status == "ok"
-    assert r.total == money(15000)   # 3000 ₽/ч в выходные (заказчик 29.10)
+    assert r.total == money(15000)  # 3000 ₽/ч в выходные (заказчик 29.10)
 
 
 @pytest.mark.parametrize("zone_id", ["dome_bags", "dome_blue_chairs", "dome_chairs"])
@@ -107,7 +108,7 @@ def test_grill_house_weekday_and_weekend(kb):
 def test_house_relax_weekday_daily(kb):
     r = q(kb, zone_id="house_relax", date=THU, hours=None, guests=8)
     assert r.status == "ok"
-    assert r.total == money(15000)   # «домик с удобствами весь день 15000» (29.10)
+    assert r.total == money(15000)  # «домик с удобствами весь день 15000» (29.10)
 
 
 def test_yurt_daily_ignores_hours(kb):
@@ -130,6 +131,7 @@ def test_yurt_checkin_is_confirmed(kb):
 # 2. Disputed fields must block, never guess
 # ==========================================================================
 
+
 def test_house_relax_weekend_now_prices_at_the_provisional_anchor(kb):
     """14.1: закрыт нашим провизорным решением — анкор 15000 ₽ (прямое
     указание владельца, свежее прайса с 14500). Пол уступки 9500 остаётся
@@ -137,7 +139,7 @@ def test_house_relax_weekend_now_prices_at_the_provisional_anchor(kb):
     r = q(kb, zone_id="house_relax", date=SAT, hours=None, guests=8)
     assert r.status == "ok"
     assert r.total == money(15000)
-    assert r.prepayment == money(7500)      # предоплата 50% (заказчик 29.10)
+    assert r.prepayment == money(7500)  # предоплата 50% (заказчик 29.10)
 
 
 def test_house_relax_friday_is_weekend_like_every_zone(kb):
@@ -151,8 +153,7 @@ def test_house_relax_friday_is_weekend_like_every_zone(kb):
 
 def test_house_relax_bath_heating_is_priced(kb):
     """2.4: доп. топка 1500 ₽/час — цифра подтверждена."""
-    r = q(kb, zone_id="house_relax", date=THU, hours=None, guests=8,
-          extras=(("bath_heating", 3),))
+    r = q(kb, zone_id="house_relax", date=THU, hours=None, guests=8, extras=(("bath_heating", 3),))
     assert r.status == "ok"
     assert r.total == money(15000 + 4500)
 
@@ -205,8 +206,8 @@ def test_pet_price_is_absent_from_the_knowledge_base():
 
 def test_blocked_quote_never_carries_a_total(kb):
     for req in [
-        PriceRequest("bath_russian", SAT, time(21, 0), 4, 6),   # past 23:00 -> escalate
-        PriceRequest("dome_bags", SAT, time(20, 0), 5, 6),      # past 23:00 -> escalate
+        PriceRequest("bath_russian", SAT, time(21, 0), 4, 6),  # past 23:00 -> escalate
+        PriceRequest("dome_bags", SAT, time(20, 0), 5, 6),  # past 23:00 -> escalate
     ]:
         r = quote(req, kb)
         assert r.status == "blocked"
@@ -216,6 +217,7 @@ def test_blocked_quote_never_carries_a_total(kb):
 # ==========================================================================
 # 3. Tent guest tiers: 19 / 20 / 21 / 31
 # ==========================================================================
+
 
 def test_tent_19_guests_lower_tier(kb):
     r = q(kb, zone_id="tent", date=SAT, start_time=NOON, hours=3, guests=19)
@@ -246,6 +248,7 @@ def test_tent_31_guests_exceeds_capacity(kb):
 # 4. Promo: 5 vs 6 vs 11 vs 12 hours
 # ==========================================================================
 
+
 def test_dome_five_hours_no_free_hour(kb):
     r = q(kb, zone_id="dome_bags", date=SAT, start_time=time(10, 0), hours=5, guests=8)
     assert r.status == "ok"
@@ -257,7 +260,7 @@ def test_dome_six_hours_gets_free_hour(kb):
     r = q(kb, zone_id="dome_bags", date=SAT, start_time=time(10, 0), hours=6, guests=8)
     assert r.status == "ok"
     assert r.applied_promo == "sixth_hour_free"
-    assert r.total == money(7500)          # 5 paid hours
+    assert r.total == money(7500)  # 5 paid hours
     assert r.billable_hours == 5
     assert r.occupied_hours == 6
 
@@ -291,11 +294,19 @@ def test_min_hours_checked_against_occupied_not_billable(kb):
 # 5. Promo interaction and disputed zones
 # ==========================================================================
 
+
 def test_two_promos_intersect_best_one_wins(kb):
     """6 hours in a dome on a birthday: free-hour (7500) beats 10% off
     (8100). The loser is reported as an alternative, never stacked."""
-    r = q(kb, zone_id="dome_bags", date=SAT, start_time=time(10, 0), hours=6,
-          guests=8, promo_hint="у нас день рождения")
+    r = q(
+        kb,
+        zone_id="dome_bags",
+        date=SAT,
+        start_time=time(10, 0),
+        hours=6,
+        guests=8,
+        promo_hint="у нас день рождения",
+    )
     assert r.status == "ok"
     assert r.applied_promo == "sixth_hour_free"
     assert r.total == money(7500)
@@ -303,21 +314,35 @@ def test_two_promos_intersect_best_one_wins(kb):
 
 
 def test_birthday_discount_wins_when_no_free_hour(kb):
-    r = q(kb, zone_id="grill_house", date=SAT, start_time=NOON, hours=4,
-          guests=8, promo_hint="день рождения")
+    r = q(
+        kb,
+        zone_id="grill_house",
+        date=SAT,
+        start_time=NOON,
+        hours=4,
+        guests=8,
+        promo_hint="день рождения",
+    )
     assert r.status == "ok"
     assert r.applied_promo == "birthday_discount_10"
-    assert r.total == money(7200)          # 8000 - 10%
+    assert r.total == money(7200)  # 8000 - 10%
 
 
 def test_birthday_discount_now_applies_to_baths(kb):
     """1.2: скидка ДЕЙСТВУЕТ на бани. Практика менеджеров из d20 оказалась
     верной, а запрет в прайсе — устаревшим."""
-    r = q(kb, zone_id="bath_russian", date=SAT, start_time=NOON, hours=3,
-          guests=6, promo_hint="я именинница")
+    r = q(
+        kb,
+        zone_id="bath_russian",
+        date=SAT,
+        start_time=NOON,
+        hours=3,
+        guests=6,
+        promo_hint="я именинница",
+    )
     assert r.status == "ok"
     assert r.applied_promo == "birthday_discount_10"
-    assert r.total == money(9450)          # 10500 − 10%
+    assert r.total == money(9450)  # 10500 − 10%
 
 
 def test_bath_without_promo_hint_prices_normally(kb):
@@ -331,14 +356,21 @@ def test_free_hour_promo_now_applies_to_bath(kb):
     r = q(kb, zone_id="bath_russian", date=SAT, start_time=time(10, 0), hours=6, guests=6)
     assert r.status == "ok"
     assert r.applied_promo == "sixth_hour_free"
-    assert r.total == money(17500)         # платим 5 часов из 6
+    assert r.total == money(17500)  # платим 5 часов из 6
     assert r.billable_hours == 5
 
 
 def test_bath_promos_do_not_stack(kb):
     """1.2: скидка ДР и «6-й час» не суммируются — выбирается выгодный."""
-    r = q(kb, zone_id="bath_russian", date=SAT, start_time=time(10, 0), hours=6,
-          guests=6, promo_hint="день рождения")
+    r = q(
+        kb,
+        zone_id="bath_russian",
+        date=SAT,
+        start_time=time(10, 0),
+        hours=6,
+        guests=6,
+        promo_hint="день рождения",
+    )
     assert r.status == "ok"
     # 6-й час в подарок (17500) выгоднее скидки 10% (18900).
     assert r.applied_promo == "sixth_hour_free"
@@ -347,8 +379,7 @@ def test_bath_promos_do_not_stack(kb):
 
 
 def test_day_package_gets_no_promo(kb):
-    r = q(kb, zone_id="grill_house", date=THU, hours=None, guests=8,
-          promo_hint="день рождения")
+    r = q(kb, zone_id="grill_house", date=THU, hours=None, guests=8, promo_hint="день рождения")
     assert r.status == "ok"
     assert r.applied_promo is None
     assert r.total == money(7000)
@@ -357,6 +388,7 @@ def test_day_package_gets_no_promo(kb):
 # ==========================================================================
 # 6. Capacity
 # ==========================================================================
+
 
 def test_capacity_exceeded_is_invalid_with_alternatives(kb):
     r = q(kb, zone_id="bath_knight", date=SAT, start_time=NOON, hours=3, guests=9)
@@ -370,13 +402,18 @@ def test_dome_alternatives_are_now_offered(kb):
     предлагать как альтернативу — догадка вниз по потоку больше не уезжает."""
     r = q(kb, zone_id="bath_knight", date=SAT, start_time=NOON, hours=3, guests=9)
     assert r.status == "invalid"
-    assert "dome_bags" in r.suggested_alternatives        # 10 мест
+    assert "dome_bags" in r.suggested_alternatives  # 10 мест
     assert "dome_chairs" not in r.suggested_alternatives  # 7 мест, не влезут
 
 
-@pytest.mark.parametrize("zone_id,seats", [
-    ("dome_bags", 10), ("dome_blue_chairs", 7), ("dome_chairs", 7),
-])
+@pytest.mark.parametrize(
+    "zone_id,seats",
+    [
+        ("dome_bags", 10),
+        ("dome_blue_chairs", 7),
+        ("dome_chairs", 7),
+    ],
+)
 def test_dome_capacities_are_confirmed(kb, zone_id, seats):
     """3.3: у каждого купола своя вместимость, и они разные."""
     ok = q(kb, zone_id=zone_id, date=SAT, start_time=NOON, hours=3, guests=seats)
@@ -386,9 +423,15 @@ def test_dome_capacities_are_confirmed(kb, zone_id, seats):
     assert "3.3" not in ok.advisory_question_ids
 
 
-@pytest.mark.parametrize("zone_id,seats", [
-    ("bath_russian", 12), ("bath_garage", 10), ("bath_knight", 6), ("grill_house", 12),
-])
+@pytest.mark.parametrize(
+    "zone_id,seats",
+    [
+        ("bath_russian", 12),
+        ("bath_garage", 10),
+        ("bath_knight", 6),
+        ("grill_house", 12),
+    ],
+)
 def test_confirmed_capacities(kb, zone_id, seats):
     """1.6 и 4.1: вместимости бань и гриль-домика."""
     ok = q(kb, zone_id=zone_id, date=SAT, start_time=NOON, hours=3, guests=seats)
@@ -406,6 +449,7 @@ def test_capacity_exactly_at_limit_is_ok(kb):
 # 7. Holidays
 # ==========================================================================
 
+
 def test_holiday_is_priced_as_weekend(kb):
     """7.2: праздники считаются по тарифу ВЫХОДНОГО дня, а не блокируются.
     23 февраля 2026 — понедельник по календарю, но это праздник."""
@@ -413,7 +457,7 @@ def test_holiday_is_priced_as_weekend(kb):
     r = q(kb, zone_id="bath_russian", date=HOLIDAY, start_time=NOON, hours=3, guests=6)
     assert r.status == "ok"
     assert r.day_type == "weekend"
-    assert r.total == money(10500)      # выходной тариф, не будний 7500
+    assert r.total == money(10500)  # выходной тариф, не будний 7500
 
 
 def test_day_after_holiday_prices_normally(kb):
@@ -435,6 +479,7 @@ def test_new_year_dates_price_goes_to_the_manager_in_every_zone(kb):
 # 8. Closing hour / midnight
 # ==========================================================================
 
+
 def test_booking_past_closing_hour_escalates_without_a_question_id(kb):
     """14.2: окно 9:00-23:00 подтверждено — это больше не дыра в базе (нет
     question_id), а решённое операционное правило: бронь после 23:00 всегда
@@ -454,9 +499,9 @@ def test_arrival_before_opening_hour_escalates_too(kb):
     r = q(kb, zone_id="dome_bags", date=SAT, start_time=time(7, 0), hours=3, guests=6)
 
     assert r.status == "blocked"
-    assert r.blocking_question_ids == ()          # решённое правило, не дыра в базе
+    assert r.blocking_question_ids == ()  # решённое правило, не дыра в базе
     assert "круглосуточно" in r.human_readable and "менеджер" in r.human_readable
-    assert r.total is None                        # цену клиенту не называем
+    assert r.total is None  # цену клиенту не называем
 
 
 def test_arrival_exactly_at_opening_hour_is_ok(kb):
@@ -523,6 +568,7 @@ def test_booking_past_23_still_blocks_but_escalates_cleanly(kb):
 # 9. Day packages
 # ==========================================================================
 
+
 def test_day_package_on_friday_is_invalid(kb):
     """The package is Пн-Чт only; silently falling back to hourly would hand
     the client a total they did not expect."""
@@ -553,9 +599,17 @@ def test_bath_has_no_day_package(kb):
 # 10. Extras
 # ==========================================================================
 
+
 def test_extras_are_separate_lines(kb):
-    r = q(kb, zone_id="bath_russian", date=SAT, start_time=NOON, hours=3, guests=6,
-          extras=(("oak_broom", 2), ("coal", 1)))
+    r = q(
+        kb,
+        zone_id="bath_russian",
+        date=SAT,
+        start_time=NOON,
+        hours=3,
+        guests=6,
+        extras=(("oak_broom", 2), ("coal", 1)),
+    )
     assert r.status == "ok"
     assert r.total == money(10500 + 1600 + 800)
     codes = [line.code for line in r.lines]
@@ -563,23 +617,45 @@ def test_extras_are_separate_lines(kb):
 
 
 def test_samovar_cheaper_on_weekday(kb):
-    weekday = q(kb, zone_id="bath_russian", date=THU, start_time=NOON, hours=3,
-                guests=6, extras=(("samovar", 1),))
-    weekend = q(kb, zone_id="bath_russian", date=SAT, start_time=NOON, hours=3,
-                guests=6, extras=(("samovar", 1),))
+    weekday = q(
+        kb,
+        zone_id="bath_russian",
+        date=THU,
+        start_time=NOON,
+        hours=3,
+        guests=6,
+        extras=(("samovar", 1),),
+    )
+    weekend = q(
+        kb,
+        zone_id="bath_russian",
+        date=SAT,
+        start_time=NOON,
+        hours=3,
+        guests=6,
+        extras=(("samovar", 1),),
+    )
     assert weekday.total == money(7500 + 1000)
     assert weekend.total == money(10500 + 1500)
 
 
 def test_unknown_extra_is_invalid(kb):
-    r = q(kb, zone_id="bath_russian", date=SAT, start_time=NOON, hours=3, guests=6,
-          extras=(("unicorn", 1),))
+    r = q(
+        kb,
+        zone_id="bath_russian",
+        date=SAT,
+        start_time=NOON,
+        hours=3,
+        guests=6,
+        extras=(("unicorn", 1),),
+    )
     assert r.status == "invalid"
 
 
 # ==========================================================================
 # 11. needs_input
 # ==========================================================================
+
 
 def test_tent_without_guests_needs_input(kb):
     r = q(kb, zone_id="tent", date=SAT, start_time=NOON, hours=3, guests=None)
@@ -608,6 +684,7 @@ def test_non_tent_zone_does_not_require_guests(kb):
 # 12. invalid
 # ==========================================================================
 
+
 def test_unknown_zone_is_invalid(kb):
     r = q(kb, zone_id="no_such_zone", date=SAT, start_time=NOON, hours=3, guests=4)
     assert r.status == "invalid"
@@ -626,6 +703,7 @@ def test_negative_guests_is_invalid(kb):
 # ==========================================================================
 # 13. Invariants
 # ==========================================================================
+
 
 def test_ok_never_carries_blocking_question_ids(kb):
     cases = [
@@ -663,7 +741,9 @@ def test_human_readable_hides_derived_hourly_rate_when_promo_applied(kb):
 
 
 def test_human_readable_has_no_greeting(kb):
-    text = q(kb, zone_id="bath_russian", date=SAT, start_time=NOON, hours=3, guests=6).human_readable
+    text = q(
+        kb, zone_id="bath_russian", date=SAT, start_time=NOON, hours=3, guests=6
+    ).human_readable
     for greeting in ("Здравствуйте", "Добрый день", "Привет"):
         assert greeting not in text
 
@@ -679,19 +759,26 @@ def test_prepayment_fixed_for_daily_zones(kb):
     суточных зон, где стоимости первого часа не существует."""
     r = q(kb, zone_id="yurt", date=SAT, hours=None, guests=2)
     assert r.status == "ok"
-    assert r.prepayment == money(2000)   # 50% от 4000
+    assert r.prepayment == money(2000)  # 50% от 4000
     assert "14.4" not in r.advisory_question_ids
 
 
 def test_prepayment_fixed_for_day_packages(kb):
     r = q(kb, zone_id="dome_bags", date=MON, hours=None, guests=6)
     assert r.status == "ok"
-    assert r.prepayment == money(2500)   # 50% от 4999, вверх до рубля
+    assert r.prepayment == money(2500)  # 50% от 4999, вверх до рубля
 
 
 def test_every_line_carries_provenance(kb):
-    r = q(kb, zone_id="bath_russian", date=SAT, start_time=NOON, hours=3, guests=6,
-          extras=(("coal", 1),))
+    r = q(
+        kb,
+        zone_id="bath_russian",
+        date=SAT,
+        start_time=NOON,
+        hours=3,
+        guests=6,
+        extras=(("coal", 1),),
+    )
     assert all(line.source_field for line in r.lines)
 
 
@@ -701,13 +788,13 @@ def test_no_float_anywhere_in_the_engine():
     for module in (engine_module,):
         tree = ast.parse(inspect.getsource(module))
         floats = [
-            node for node in ast.walk(tree)
+            node
+            for node in ast.walk(tree)
             if isinstance(node, ast.Constant) and isinstance(node.value, float)
         ]
         assert not floats, f"float literals found: {[f.value for f in floats]}"
         float_calls = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Name) and node.id == "float"
+            node for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "float"
         ]
         assert not float_calls, "the engine must never call float()"
 
@@ -728,21 +815,22 @@ def test_rounding_is_half_up():
 # 14. Status coverage — at least three cases each
 # ==========================================================================
 
+
 def test_status_coverage(kb):
     seen: dict[str, int] = {}
     cases = [
-        PriceRequest("bath_russian", SAT, NOON, 3, 6),          # ok
-        PriceRequest("dome_bags", SAT, time(10, 0), 6, 8),      # ok
-        PriceRequest("yurt", SAT, None, None, 2),               # ok
-        PriceRequest("bath_russian", SAT, time(21, 0), 4, 6),   # blocked, past 23:00
-        PriceRequest("dome_bags", SAT, time(20, 0), 5, 6),      # blocked, past 23:00
-        PriceRequest("grill_house", SAT, time(22, 0), 3, 6),    # blocked, past 23:00
-        PriceRequest("no_such_zone", SAT, NOON, 3, 4),          # invalid
-        PriceRequest("bath_knight", SAT, NOON, 3, 9),           # invalid
-        PriceRequest("grill_house", FRI, None, None, 8),        # invalid
-        PriceRequest("tent", SAT, NOON, 3, None),               # needs_input
-        PriceRequest("dome_bags", SAT, None, 3, 6),             # needs_input
-        PriceRequest("bath_russian", THU, None, None, 6),       # needs_input
+        PriceRequest("bath_russian", SAT, NOON, 3, 6),  # ok
+        PriceRequest("dome_bags", SAT, time(10, 0), 6, 8),  # ok
+        PriceRequest("yurt", SAT, None, None, 2),  # ok
+        PriceRequest("bath_russian", SAT, time(21, 0), 4, 6),  # blocked, past 23:00
+        PriceRequest("dome_bags", SAT, time(20, 0), 5, 6),  # blocked, past 23:00
+        PriceRequest("grill_house", SAT, time(22, 0), 3, 6),  # blocked, past 23:00
+        PriceRequest("no_such_zone", SAT, NOON, 3, 4),  # invalid
+        PriceRequest("bath_knight", SAT, NOON, 3, 9),  # invalid
+        PriceRequest("grill_house", FRI, None, None, 8),  # invalid
+        PriceRequest("tent", SAT, NOON, 3, None),  # needs_input
+        PriceRequest("dome_bags", SAT, None, 3, 6),  # needs_input
+        PriceRequest("bath_russian", THU, None, None, 6),  # needs_input
     ]
     for req in cases:
         seen[quote(req, kb).status] = seen.get(quote(req, kb).status, 0) + 1
@@ -759,6 +847,7 @@ def test_status_coverage(kb):
 # поправкой, «если известна зона и день недели — цену за час можно называть
 # всегда, даже если не хватает двух параметров».
 
+
 def test_needs_input_carries_the_hourly_rate_and_the_minimum(kb):
     """Клиент назвал зону и дату, но не сказал, на сколько часов."""
     result = q(kb, zone_id="bath_russian", date=SAT)
@@ -766,7 +855,7 @@ def test_needs_input_carries_the_hourly_rate_and_the_minimum(kb):
     assert result.status == "needs_input"
     assert result.missing_fields == ("hours",)
     assert result.rate_hint is not None
-    assert result.rate_hint.per_hour == money(3500)     # выходной тариф бани
+    assert result.rate_hint.per_hour == money(3500)  # выходной тариф бани
     assert result.rate_hint.min_hours == 2
     assert result.rate_hint.day_type == "weekend"
 
@@ -848,7 +937,7 @@ def test_the_question_asks_for_one_thing_only(kb):
     предложении, мимо счётчика вопросительных знаков. Так больше нельзя."""
     result = q(kb, zone_id="tent", date=SAT, hours=3)
 
-    assert len(result.missing_fields) > 1          # не хватает нескольких полей
+    assert len(result.missing_fields) > 1  # не хватает нескольких полей
     assert result.human_readable.count("?") == 1
     assert " и " not in result.human_readable.lower()
     # И это вопрос про КОНКРЕТНОЕ поле — первое по приоритету из
@@ -858,15 +947,16 @@ def test_the_question_asks_for_one_thing_only(kb):
     assert "со скольки" in result.human_readable.lower()
 
 
-@pytest.mark.parametrize('d', [date(2026, 12, 30), date(2026, 12, 31), date(2027, 1, 1), date(2027, 1, 10)])
+@pytest.mark.parametrize(
+    "d", [date(2026, 12, 30), date(2026, 12, 31), date(2027, 1, 1), date(2027, 1, 10)]
+)
 def test_new_year_dates_are_left_to_the_manager(kb, d):
     """Аудит 30.10: менеджер называет на НГ 5000-10000 ₽/ч, бот считал 3500."""
-    r = q(kb, zone_id='bath_russian', date=d, start_time=NOON, hours=3, guests=4)
-    assert r.status == 'blocked'
+    r = q(kb, zone_id="bath_russian", date=d, start_time=NOON, hours=3, guests=4)
+    assert r.status == "blocked"
     assert r.total is None and r.rate_hint is None
 
 
 def test_ordinary_january_days_are_priced_again(kb):
-    r = q(kb, zone_id='bath_russian', date=date(2027, 1, 13), start_time=NOON, hours=3, guests=4)
-    assert r.status == 'ok'
-
+    r = q(kb, zone_id="bath_russian", date=date(2027, 1, 13), start_time=NOON, hours=3, guests=4)
+    assert r.status == "ok"

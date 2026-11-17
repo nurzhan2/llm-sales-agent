@@ -56,8 +56,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional, Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger("parmangal.item_scope")
 
@@ -74,8 +75,17 @@ ZERO_ITEM_ID = "0"
 # заголовках Авито попадаются словоформы («банная зона», «баня-бочка»), и
 # более строгий вариант с границей слова часть из них пропустил бы.
 _ALLOW_WORDS = (
-    "баня", "банный", "парная", "сауна", "чан", "купель",
-    "купол", "шатёр", "юрта", "гриль", "беседка",
+    "баня",
+    "банный",
+    "парная",
+    "сауна",
+    "чан",
+    "купель",
+    "купол",
+    "шатёр",
+    "юрта",
+    "гриль",
+    "беседка",
 )
 # Посторонние для комплекса объявления заказчика — расширено живым прогоном
 # scripts/sync_item_scope.py 2026-08-28 против прода (55 объявлений
@@ -105,26 +115,44 @@ _ALLOW_WORDS = (
 # объявлении комплекса, где они встретятся не в значении вакансии, признан
 # и принят сознательно (короткие заголовки объявлений это маловероятно).
 _DENY_WORDS = (
-    "вакансия", "продам", "квартира", "студия",
+    "вакансия",
+    "продам",
+    "квартира",
+    "студия",
     "апартаменты",
-    "глэмпинг", "глемпинг",
+    "глэмпинг",
+    "глемпинг",
     # Оба порядка слов — реальные заголовки используют и тот, и другой
     # (см. живую находку выше: 8076019723 "арендный бизнес" не матчился
     # единственной прежней формулировкой "аренда бизнеса").
-    "аренда бизнеса", "бизнес в аренду", "арендный бизнес",
-    "готовый бизнес", "продажа бизнеса",
-    "горничная", "уборщица", "рабочий по обслуживанию", "персонал", "требуется",
+    "аренда бизнеса",
+    "бизнес в аренду",
+    "арендный бизнес",
+    "готовый бизнес",
+    "продажа бизнеса",
+    "горничная",
+    "уборщица",
+    "рабочий по обслуживанию",
+    "персонал",
+    "требуется",
     # 2026-09-17: «Администратор базы отдыха» — вакансия без единого слова
     # выше; агент ответил откликнувшемуся кандидату «на какое число
     # планируете отдых?». Главная защита — категория (_DENY_CATEGORIES),
     # слова — запасной рубеж, если категория в ответе Авито не пришла.
-    "администратор", "зарплата", "на руки", "сотрудник", "подработка",
-    "инвестиционная возможность", "инвестиции",
+    "администратор",
+    "зарплата",
+    "на руки",
+    "сотрудник",
+    "подработка",
+    "инвестиционная возможность",
+    "инвестиции",
     # Аудит 30.10: «Свободного назначения, 24 м²» (8327389657) - помещение,
     # не зона комплекса, а агент отвечал там про баню (no_keyword_match =
     # allow). «Кемпинг с комфортом» - юрта, снятая с продажи 29.10: туда
     # отвечает менеджер, а не бот, который юрту больше не предлагает.
-    "свободного назначения", "помещение", "кемпинг",
+    "свободного назначения",
+    "помещение",
+    "кемпинг",
 )
 
 # Категории Авито, в которых у комплекса не может быть бронируемой зоны.
@@ -134,17 +162,18 @@ _DENY_WORDS = (
 _DENY_CATEGORIES = ("ваканси", "резюме", "готовый бизнес", "квартиры")
 
 
-def category_is_denied(category: Optional[str]) -> bool:
+def category_is_denied(category: str | None) -> bool:
     if not category:
         return False
     lowered = category.lower()
     return any(word in lowered for word in _DENY_CATEGORIES)
 
+
 ALLOW_TITLE_RE = re.compile("|".join(_ALLOW_WORDS), re.IGNORECASE)
 DENY_TITLE_RE = re.compile("|".join(_DENY_WORDS), re.IGNORECASE)
 
 
-def classify_title(title: Optional[str], category: Optional[str] = None) -> tuple[str, str]:
+def classify_title(title: str | None, category: str | None = None) -> tuple[str, str]:
     """(decision, reason) по заголовку объявления — без учёта жёсткого deny.
 
     DENY ПРОВЕРЯЕТСЯ ПЕРВЫМ И ПОБЕЖДАЕТ: заголовок, где встречаются и
@@ -183,8 +212,10 @@ def hard_deny_ids_from_settings(settings: Any) -> frozenset[str]:
 
 
 def classify_listing(
-    item_id: str, title: Optional[str], hard_deny_ids: frozenset[str],
-    category: Optional[str] = None,
+    item_id: str,
+    title: str | None,
+    hard_deny_ids: frozenset[str],
+    category: str | None = None,
 ) -> tuple[str, str]:
     """classify_title плюс жёсткий deny по id — используется и живым
     резолвером (ItemScopeResolver.resolve), и часовой фоновой задачей
@@ -198,14 +229,16 @@ def classify_listing(
 @dataclass(frozen=True)
 class ItemScopeRow:
     item_id: str
-    title: Optional[str]
+    title: str | None
     decision: str
     reason: str
 
 
 class ItemScopeStore(Protocol):
-    async def get(self, item_id: str) -> Optional[ItemScopeRow]: ...
-    async def upsert(self, item_id: str, *, title: Optional[str], decision: str, reason: str) -> None: ...
+    async def get(self, item_id: str) -> ItemScopeRow | None: ...
+    async def upsert(
+        self, item_id: str, *, title: str | None, decision: str, reason: str
+    ) -> None: ...
     async def all(self) -> list[ItemScopeRow]: ...
 
 
@@ -219,10 +252,10 @@ class InMemoryItemScopeStore:
         if self.rows is None:
             self.rows = {}
 
-    async def get(self, item_id: str) -> Optional[ItemScopeRow]:
+    async def get(self, item_id: str) -> ItemScopeRow | None:
         return self.rows.get(str(item_id))
 
-    async def upsert(self, item_id: str, *, title: Optional[str], decision: str, reason: str) -> None:
+    async def upsert(self, item_id: str, *, title: str | None, decision: str, reason: str) -> None:
         self.rows[str(item_id)] = ItemScopeRow(str(item_id), title, decision, reason)
 
     async def all(self) -> list[ItemScopeRow]:
@@ -236,7 +269,7 @@ class SqlAlchemyItemScopeStore:
     def __init__(self, session_factory):
         self._session_factory = session_factory
 
-    async def get(self, item_id: str) -> Optional[ItemScopeRow]:
+    async def get(self, item_id: str) -> ItemScopeRow | None:
         from sqlalchemy import select
 
         from app.db.models import ItemScope
@@ -249,7 +282,7 @@ class SqlAlchemyItemScopeStore:
                 return None
             return ItemScopeRow(row.item_id, row.title, row.decision, row.reason or "")
 
-    async def upsert(self, item_id: str, *, title: Optional[str], decision: str, reason: str) -> None:
+    async def upsert(self, item_id: str, *, title: str | None, decision: str, reason: str) -> None:
         from sqlalchemy import select
 
         from app.db.models import ItemScope
@@ -260,7 +293,9 @@ class SqlAlchemyItemScopeStore:
                 await session.execute(select(ItemScope).where(ItemScope.item_id == item_id))
             ).scalar_one_or_none()
             if row is None:
-                session.add(ItemScope(item_id=item_id, title=title, decision=decision, reason=reason))
+                session.add(
+                    ItemScope(item_id=item_id, title=title, decision=decision, reason=reason)
+                )
             else:
                 row.title = title
                 row.decision = decision
@@ -286,7 +321,7 @@ class _HasItemIdAndTitle(Protocol):
 
 
 OwnItemIdsProvider = Callable[[], Awaitable[Any]]
-ItemCardFetcher = Callable[[str], Awaitable[Optional[_HasItemIdAndTitle]]]
+ItemCardFetcher = Callable[[str], Awaitable[_HasItemIdAndTitle | None]]
 
 # ФУНКЦИИ ДОГРУЗКИ ОДНОЙ КАРТОЧКИ ЗДЕСЬ НЕТ НАМЕРЕННО. Раньше здесь был
 # `make_item_card_fetcher`, делавший СОБСТВЕННЫЙ некешированный
@@ -312,15 +347,15 @@ class ItemScopeResolver:
         store: ItemScopeStore,
         settings: Any,
         *,
-        own_items_provider: Optional[OwnItemIdsProvider] = None,
-        fetch_item: Optional[ItemCardFetcher] = None,
+        own_items_provider: OwnItemIdsProvider | None = None,
+        fetch_item: ItemCardFetcher | None = None,
     ):
         self._store = store
         self._settings = settings
         self._own_items_provider = own_items_provider
         self._fetch_item = fetch_item
 
-    async def resolve(self, item_id: str, *, known_title: Optional[str] = None) -> ItemScopeRow:
+    async def resolve(self, item_id: str, *, known_title: str | None = None) -> ItemScopeRow:
         item_id = str(item_id)
 
         if item_id == ZERO_ITEM_ID:
@@ -355,15 +390,13 @@ class ItemScopeResolver:
                 return row
 
         title = known_title
-        category: Optional[str] = None
+        category: str | None = None
         fetch_failed = False
         if self._fetch_item is not None:
             try:
                 listing = await self._fetch_item(item_id)
             except Exception:
-                logger.exception(
-                    "item_scope: не удалось догрузить карточку объявления %s", item_id
-                )
+                logger.exception("item_scope: не удалось догрузить карточку объявления %s", item_id)
                 fetch_failed = True
             else:
                 if listing is not None:
@@ -380,7 +413,9 @@ class ItemScopeResolver:
 
     async def _safe_upsert(self, row: ItemScopeRow) -> None:
         try:
-            await self._store.upsert(row.item_id, title=row.title, decision=row.decision, reason=row.reason)
+            await self._store.upsert(
+                row.item_id, title=row.title, decision=row.decision, reason=row.reason
+            )
         except Exception:
             # Сбой записи не должен превращать уже принятое решение в
             # исключение, летящее в OutboundGate, — просто следующий вызов
@@ -404,14 +439,18 @@ class RefreshStats:
         return self.allowed + self.denied
 
 
-async def refresh_item_scope(listings: list[Any], store: ItemScopeStore, hard_deny_ids: frozenset[str]) -> RefreshStats:
+async def refresh_item_scope(
+    listings: list[Any], store: ItemScopeStore, hard_deny_ids: frozenset[str]
+) -> RefreshStats:
     """Классифицирует и сохраняет ВСЕ переданные объявления. Отдельно от
     `run_item_scope_refresh_pass` ради теста: здесь нет сети, только чистая
     классификация и запись."""
     stats = RefreshStats()
     for listing in listings:
         decision, reason = classify_listing(
-            listing.item_id, listing.title, hard_deny_ids,
+            listing.item_id,
+            listing.title,
+            hard_deny_ids,
             getattr(listing, "category", None),
         )
         await store.upsert(listing.item_id, title=listing.title, decision=decision, reason=reason)
@@ -419,7 +458,9 @@ async def refresh_item_scope(listings: list[Any], store: ItemScopeStore, hard_de
     return stats
 
 
-async def run_item_scope_refresh_pass(items_client: Any, store: ItemScopeStore, settings: Any) -> RefreshStats:
+async def run_item_scope_refresh_pass(
+    items_client: Any, store: ItemScopeStore, settings: Any
+) -> RefreshStats:
     """Один час-проход: весь список объявлений аккаунта (те же статусы, что
     и у гуарда поллера — active,old,removed по умолчанию, см.
     `settings.poller_items_statuses`) -> классификация -> запись."""
@@ -429,6 +470,8 @@ async def run_item_scope_refresh_pass(items_client: Any, store: ItemScopeStore, 
     stats = await refresh_item_scope(listings, store, hard_deny_ids)
     logger.info(
         "item_scope: классифицировано %d объявлений — allow %d, deny %d",
-        stats.total, stats.allowed, stats.denied,
+        stats.total,
+        stats.allowed,
+        stats.denied,
     )
     return stats

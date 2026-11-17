@@ -7,10 +7,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from app.agent.providers.base import LLMProvider
 from app.agent.providers import deepseek_provider as _ds
+from app.agent.providers.base import LLMProvider
 from app.agent.providers.deepseek_provider import DeepSeekProvider
 from app.agent.providers.failover import FailoverProvider
 
@@ -63,7 +64,7 @@ def _build_single(provider_name: str, settings: Any) -> LLMProvider:
 
 def build_provider(
     settings: Any,
-    on_switch: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    on_switch: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> LLMProvider:
     primary = _build_single(settings.llm_provider, settings)
     fallback_name = getattr(settings, "llm_fallback_provider", None)

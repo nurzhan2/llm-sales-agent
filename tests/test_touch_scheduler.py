@@ -4,15 +4,13 @@ InMemoryOpsStore для операторского контура)."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
-import pytest
+from datetime import UTC, datetime, timedelta
 
 from app.agent.touch_tracking import TEMPLATE_DIRECT, TEMPLATE_SOFT, TouchState
 from app.kb.loader import WorkingWindow
 from app.ops.touch_scheduler import InMemoryTouchStore, TouchDialog, run_scheduler_pass
 
-NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 WINDOW = WorkingWindow(**{"from": "09:00", "to": "23:00"})
 TEMPLATES = {TEMPLATE_SOFT: "Вы где-то затерялись?", TEMPLATE_DIRECT: "Будете бронировать или нет?"}
 
@@ -27,13 +25,23 @@ def _sender():
 
 
 async def test_due_dialog_gets_the_soft_template_and_advances_to_touch_two():
-    store = InMemoryTouchStore(dialogs={
-        "chat-1": TouchState(touch_count=1, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            "chat-1": TouchState(
+                touch_count=1, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW
+            ),
+        }
+    )
     send, sent = _sender()
 
     touched = await run_scheduler_pass(
-        store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3,
+        store,
+        TEMPLATES,
+        WINDOW,
+        send,
+        NOW,
+        delay_minutes=30,
+        max_count=3,
     )
 
     assert touched == ["chat-1"]
@@ -43,9 +51,13 @@ async def test_due_dialog_gets_the_soft_template_and_advances_to_touch_two():
 
 
 async def test_second_touch_uses_direct_template_and_stops():
-    store = InMemoryTouchStore(dialogs={
-        "chat-1": TouchState(touch_count=2, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            "chat-1": TouchState(
+                touch_count=2, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW
+            ),
+        }
+    )
     send, sent = _sender()
 
     await run_scheduler_pass(store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3)
@@ -56,12 +68,16 @@ async def test_second_touch_uses_direct_template_and_stops():
 
 
 async def test_not_yet_due_dialog_is_left_untouched():
-    store = InMemoryTouchStore(dialogs={
-        "chat-1": TouchState(touch_count=1, next_touch_due_at=NOW + timedelta(minutes=5)),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            "chat-1": TouchState(touch_count=1, next_touch_due_at=NOW + timedelta(minutes=5)),
+        }
+    )
     send, sent = _sender()
 
-    touched = await run_scheduler_pass(store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3)
+    touched = await run_scheduler_pass(
+        store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3
+    )
 
     assert touched == []
     assert sent == []
@@ -69,12 +85,16 @@ async def test_not_yet_due_dialog_is_left_untouched():
 
 
 async def test_dialog_at_max_count_is_never_picked_up():
-    store = InMemoryTouchStore(dialogs={
-        "chat-1": TouchState(touch_count=3, next_touch_due_at=NOW - timedelta(minutes=1)),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            "chat-1": TouchState(touch_count=3, next_touch_due_at=NOW - timedelta(minutes=1)),
+        }
+    )
     send, sent = _sender()
 
-    touched = await run_scheduler_pass(store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3)
+    touched = await run_scheduler_pass(
+        store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3
+    )
 
     assert touched == []
     assert sent == []
@@ -84,14 +104,19 @@ async def test_dialog_at_max_count_is_never_picked_up():
 # «Отложенное сообщение не уходит в 3 ночи»
 # --------------------------------------------------------------------------
 
+
 async def test_whole_pass_is_skipped_outside_working_hours():
-    night = datetime(2026, 8, 20, 3, 0, tzinfo=timezone.utc)
-    store = InMemoryTouchStore(dialogs={
-        "chat-1": TouchState(touch_count=1, next_touch_due_at=night - timedelta(minutes=1)),
-    })
+    night = datetime(2026, 8, 20, 3, 0, tzinfo=UTC)
+    store = InMemoryTouchStore(
+        dialogs={
+            "chat-1": TouchState(touch_count=1, next_touch_due_at=night - timedelta(minutes=1)),
+        }
+    )
     send, sent = _sender()
 
-    touched = await run_scheduler_pass(store, TEMPLATES, WINDOW, send, night, delay_minutes=30, max_count=3)
+    touched = await run_scheduler_pass(
+        store, TEMPLATES, WINDOW, send, night, delay_minutes=30, max_count=3
+    )
 
     assert touched == []
     assert sent == []
@@ -103,11 +128,13 @@ async def test_whole_pass_is_skipped_outside_working_hours():
 async def test_overdue_dialog_fires_as_soon_as_window_opens():
     """Просроченный ночью диалог не потерян — следующий проход воркера
     (уже утром) подхватывает его как есть."""
-    night = datetime(2026, 8, 20, 3, 0, tzinfo=timezone.utc)
-    morning = datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc)
-    store = InMemoryTouchStore(dialogs={
-        "chat-1": TouchState(touch_count=1, next_touch_due_at=night),
-    })
+    night = datetime(2026, 8, 20, 3, 0, tzinfo=UTC)
+    morning = datetime(2026, 8, 20, 9, 0, tzinfo=UTC)
+    store = InMemoryTouchStore(
+        dialogs={
+            "chat-1": TouchState(touch_count=1, next_touch_due_at=night),
+        }
+    )
     send, sent = _sender()
 
     await run_scheduler_pass(store, TEMPLATES, WINDOW, send, night, delay_minutes=30, max_count=3)
@@ -121,15 +148,20 @@ async def test_overdue_dialog_fires_as_soon_as_window_opens():
 # Устойчивость к сбою отправки
 # --------------------------------------------------------------------------
 
+
 async def test_send_failure_does_not_advance_state_or_stop_the_pass():
     async def failing_send(chat_id, text):
         raise RuntimeError("Avito недоступен")
 
-    store = InMemoryTouchStore(dialogs={
-        "chat-1": TouchState(touch_count=1, next_touch_due_at=NOW),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            "chat-1": TouchState(touch_count=1, next_touch_due_at=NOW),
+        }
+    )
 
-    touched = await run_scheduler_pass(store, TEMPLATES, WINDOW, failing_send, NOW, delay_minutes=30, max_count=3)
+    touched = await run_scheduler_pass(
+        store, TEMPLATES, WINDOW, failing_send, NOW, delay_minutes=30, max_count=3
+    )
 
     assert touched == []
     # состояние не продвинулось — при следующем проходе попробуем снова
@@ -142,12 +174,16 @@ async def test_one_dialog_failing_does_not_block_the_rest():
         if chat_id == "bad":
             raise RuntimeError("boom")
 
-    store = InMemoryTouchStore(dialogs={
-        "bad": TouchState(touch_count=1, next_touch_due_at=NOW),
-        "good": TouchState(touch_count=1, next_touch_due_at=NOW),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            "bad": TouchState(touch_count=1, next_touch_due_at=NOW),
+            "good": TouchState(touch_count=1, next_touch_due_at=NOW),
+        }
+    )
 
-    touched = await run_scheduler_pass(store, TEMPLATES, WINDOW, flaky_send, NOW, delay_minutes=30, max_count=3)
+    touched = await run_scheduler_pass(
+        store, TEMPLATES, WINDOW, flaky_send, NOW, delay_minutes=30, max_count=3
+    )
 
     assert touched == ["good"]
     assert store.dialogs["bad"].touch_count == 1
@@ -158,12 +194,15 @@ async def test_one_dialog_failing_does_not_block_the_rest():
 # «Рестарт процесса не теряет запланированные касания»
 # --------------------------------------------------------------------------
 
+
 async def test_state_reloaded_after_restart_is_picked_up_by_a_fresh_store():
     """Сохранённое состояние — не то же самое, что живой процесс: новый
     InMemoryTouchStore, «загруженный» из тех же данных (как если бы это был
     новый процесс, читающий БД), находит диалог due как ни в чём не бывало."""
     persisted_snapshot = {
-        "chat-1": TouchState(touch_count=1, last_touch_at=NOW - timedelta(hours=1), next_touch_due_at=NOW),
+        "chat-1": TouchState(
+            touch_count=1, last_touch_at=NOW - timedelta(hours=1), next_touch_due_at=NOW
+        ),
     }
 
     # «Рестарт»: новый объект стора, те же данные — как будто только что
@@ -171,7 +210,9 @@ async def test_state_reloaded_after_restart_is_picked_up_by_a_fresh_store():
     fresh_store = InMemoryTouchStore(dialogs=dict(persisted_snapshot))
     send, sent = _sender()
 
-    touched = await run_scheduler_pass(fresh_store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3)
+    touched = await run_scheduler_pass(
+        fresh_store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3
+    )
 
     assert touched == ["chat-1"]
     assert sent == [("chat-1", TEMPLATES[TEMPLATE_SOFT])]
@@ -181,8 +222,10 @@ async def test_state_reloaded_after_restart_is_picked_up_by_a_fresh_store():
 # Белый список объявлений (инцидент: касание ушло в чат u2u-…)
 # --------------------------------------------------------------------------
 
+
 def _blocker(*blocked: str):
     """can_send, запрещающий перечисленные чаты."""
+
     async def can_send(chat_id: str) -> bool:
         return chat_id not in blocked
 
@@ -193,13 +236,23 @@ async def test_touch_is_not_sent_to_a_blocked_chat():
     """Главный сценарий инцидента: в 09:00 третье касание ушло в чат
     u2u-TestChat000000000003, которому агент писать не должен."""
     chat = "u2u-TestChat000000000003"
-    store = InMemoryTouchStore(dialogs={
-        chat: TouchState(touch_count=2, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            chat: TouchState(
+                touch_count=2, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW
+            ),
+        }
+    )
     send, sent = _sender()
 
     touched = await run_scheduler_pass(
-        store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3,
+        store,
+        TEMPLATES,
+        WINDOW,
+        send,
+        NOW,
+        delay_minutes=30,
+        max_count=3,
         can_send=_blocker(chat),
     )
 
@@ -212,13 +265,23 @@ async def test_blocked_chat_gets_its_timer_disarmed_not_just_skipped():
     воркера до конца времён. Гасим срок — и это же чистит чаты, попавшие в
     таблицу касаний до появления фильтра."""
     chat = "u2u-old"
-    store = InMemoryTouchStore(dialogs={
-        chat: TouchState(touch_count=2, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            chat: TouchState(
+                touch_count=2, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW
+            ),
+        }
+    )
     send, sent = _sender()
 
     await run_scheduler_pass(
-        store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3,
+        store,
+        TEMPLATES,
+        WINDOW,
+        send,
+        NOW,
+        delay_minutes=30,
+        max_count=3,
         can_send=_blocker(chat),
     )
 
@@ -228,7 +291,13 @@ async def test_blocked_chat_gets_its_timer_disarmed_not_just_skipped():
 
     # Второй проход по тому же стору диалог уже не находит.
     touched_again = await run_scheduler_pass(
-        store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3,
+        store,
+        TEMPLATES,
+        WINDOW,
+        send,
+        NOW,
+        delay_minutes=30,
+        max_count=3,
         can_send=_blocker(chat),
     )
     assert touched_again == []
@@ -237,14 +306,26 @@ async def test_blocked_chat_gets_its_timer_disarmed_not_just_skipped():
 async def test_allowed_chats_are_untouched_by_the_filter():
     """Фильтр не должен задевать соседей: в одном проходе заблокированный
     и разрешённый чат обрабатываются независимо."""
-    store = InMemoryTouchStore(dialogs={
-        "blocked": TouchState(touch_count=1, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW),
-        "allowed": TouchState(touch_count=1, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            "blocked": TouchState(
+                touch_count=1, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW
+            ),
+            "allowed": TouchState(
+                touch_count=1, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW
+            ),
+        }
+    )
     send, sent = _sender()
 
     touched = await run_scheduler_pass(
-        store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3,
+        store,
+        TEMPLATES,
+        WINDOW,
+        send,
+        NOW,
+        delay_minutes=30,
+        max_count=3,
         can_send=_blocker("blocked"),
     )
 
@@ -256,12 +337,18 @@ async def test_allowed_chats_are_untouched_by_the_filter():
 
 async def test_without_can_send_everything_works_as_before():
     """Обратная совместимость: параметр не передан — поведение прежнее."""
-    store = InMemoryTouchStore(dialogs={
-        "chat-1": TouchState(touch_count=1, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW),
-    })
+    store = InMemoryTouchStore(
+        dialogs={
+            "chat-1": TouchState(
+                touch_count=1, last_touch_at=NOW - timedelta(minutes=30), next_touch_due_at=NOW
+            ),
+        }
+    )
     send, sent = _sender()
 
-    touched = await run_scheduler_pass(store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3)
+    touched = await run_scheduler_pass(
+        store, TEMPLATES, WINDOW, send, NOW, delay_minutes=30, max_count=3
+    )
 
     assert touched == ["chat-1"]
     assert sent == [("chat-1", TEMPLATES[TEMPLATE_SOFT])]
@@ -276,8 +363,8 @@ async def test_without_can_send_everything_works_as_before():
 # касанием, просроченным на четверо суток.
 # --------------------------------------------------------------------------
 
-FRESH = datetime(2026, 8, 31, 9, 0, tzinfo=timezone.utc)
-THRESHOLD_TS = int(datetime(2026, 8, 31, 3, 0, tzinfo=timezone.utc).timestamp())
+FRESH = datetime(2026, 8, 31, 9, 0, tzinfo=UTC)
+THRESHOLD_TS = int(datetime(2026, 8, 31, 3, 0, tzinfo=UTC).timestamp())
 
 
 def _due_state(count: int = 0) -> TouchState:
@@ -293,9 +380,15 @@ async def _run(store, sent, *, last_inbound=None, min_ts=0, max_count=3):
         sent.append((chat_id, text))
 
     return await run_scheduler_pass(
-        store, TEMPLATES, WINDOW, send, FRESH,
-        delay_minutes=30, max_count=max_count,
-        last_inbound=last_inbound, min_inbound_ts=min_ts,
+        store,
+        TEMPLATES,
+        WINDOW,
+        send,
+        FRESH,
+        delay_minutes=30,
+        max_count=max_count,
+        last_inbound=last_inbound,
+        min_inbound_ts=min_ts,
     )
 
 
@@ -304,7 +397,7 @@ async def test_a_touch_is_not_sent_when_the_client_wrote_before_the_threshold():
     sent = []
 
     async def last_inbound(chat_id):
-        return datetime(2026, 8, 27, 18, 45, tzinfo=timezone.utc)   # четверо суток назад
+        return datetime(2026, 8, 27, 18, 45, tzinfo=UTC)  # четверо суток назад
 
     touched = await _run(store, sent, last_inbound=last_inbound, min_ts=THRESHOLD_TS)
 
@@ -372,13 +465,15 @@ async def test_without_a_threshold_the_worker_behaves_as_before():
 # Лимит касаний проверяется ДО отправки
 # --------------------------------------------------------------------------
 
+
 async def test_the_third_touch_is_sent_and_the_fourth_is_not():
     """Граница TOUCH_MAX_COUNT=3. `advance_touch` считает следующий номер и
     гасит таймер только по факту отправки, поэтому состояние с исчерпанным
     счётчиком и живым сроком (остаётся от прежних значений настройки)
     отправляло бы четвёртое касание и только потом успокаивалось."""
-    store = InMemoryTouchStore(dialogs={"третье": _due_state(count=2),
-                                        "четвёртое": _due_state(count=3)})
+    store = InMemoryTouchStore(
+        dialogs={"третье": _due_state(count=2), "четвёртое": _due_state(count=3)}
+    )
     sent = []
 
     touched = await _run(store, sent, max_count=3)
@@ -396,6 +491,7 @@ async def test_the_limit_is_checked_where_we_send_not_only_where_we_select():
     """Стор, который забыл отфильтровать исчерпанные (или чьё max_count
     изменилось между взводом и отправкой), не должен приводить к лишнему
     сообщению живому человеку."""
+
     class _LooseStore(InMemoryTouchStore):
         async def list_due(self, now, max_count):
             return [TouchDialog(chat_id=cid, state=st) for cid, st in self.dialogs.items()]

@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import httpx
-import pytest
 import respx
 
 from app.booking import yclients_endpoints as ep
@@ -30,6 +29,7 @@ def _client() -> httpx.AsyncClient:
 # --------------------------------------------------------------------------
 # Форматирование
 # --------------------------------------------------------------------------
+
 
 def test_describe_objects_reports_zero_for_empty_list():
     assert _describe_objects([]) == "0 объектов"
@@ -81,12 +81,17 @@ def test_summarize_data_handles_null():
 # run_check — реальные варианты ответа, ничего не скрывается
 # --------------------------------------------------------------------------
 
+
 @respx.mock
 async def test_run_check_prints_nested_envelope(capsys):
     respx.get(ep.BASE_URL + "/book_services/1").mock(
         return_value=httpx.Response(
             200,
-            json={"success": True, "data": {"categories": [], "services": [{"id": 1, "title": "x"}]}, "meta": {}},
+            json={
+                "success": True,
+                "data": {"categories": [], "services": [{"id": 1, "title": "x"}]},
+                "meta": {},
+            },
         )
     )
     async with _client() as client:

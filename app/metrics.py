@@ -15,9 +15,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import date as DateType, datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
+from datetime import date as DateType
 from decimal import Decimal
-from typing import Any, Callable, Optional
+from typing import Any
 
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
@@ -30,9 +32,7 @@ messages_total = Counter(
 )
 quotes_total = Counter("parmangal_quotes_total", "Котировки по статусам", ["status"])
 escalations_total = Counter("parmangal_escalations_total", "Эскалации", ["reason"])
-concessions_total = Counter(
-    "parmangal_concessions_total", "Уступки", ["tier", "allowed"]
-)
+concessions_total = Counter("parmangal_concessions_total", "Уступки", ["tier", "allowed"])
 revenue_delta_rub = Counter(
     "parmangal_revenue_delta_rub", "Сумма недополученной выручки по уступкам"
 )
@@ -42,9 +42,7 @@ llm_cost_rub = Counter("parmangal_llm_cost_rub", "Расход на модели
 # меньше анкетных ответов после выкатки» приходилось отвечать грепом по
 # Railway — то есть за то окно, что там ещё хранится. Метрика отвечает на
 # него числом и на любом горизонте.
-guard_rails_total = Counter(
-    "parmangal_guard_rails_total", "Срабатывания рубежей", ["rule"]
-)
+guard_rails_total = Counter("parmangal_guard_rails_total", "Срабатывания рубежей", ["rule"])
 turn_seconds = Histogram("parmangal_turn_seconds", "Время обработки хода")
 agent_paused = Gauge("parmangal_agent_paused", "1 если агент на паузе")
 dry_run_gauge = Gauge("parmangal_dry_run", "1 если включён режим модерации")
@@ -80,14 +78,14 @@ class DailyCostGuard:
     def __init__(
         self,
         limit_rub: Decimal,
-        on_pause: Optional[Callable[[], Any]] = None,
-        now_fn: Optional[Callable[[], datetime]] = None,
+        on_pause: Callable[[], Any] | None = None,
+        now_fn: Callable[[], datetime] | None = None,
     ):
         self.limit_rub = Decimal(limit_rub)
         self.spent = Decimal("0")
         self.on_pause = on_pause
         self.tripped = False
-        self._now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+        self._now_fn = now_fn or (lambda: datetime.now(UTC))
         self._day = self._moscow_day()
 
     @property
@@ -125,7 +123,8 @@ class DailyCostGuard:
         self.tripped = True
         agent_paused.set(1)
         logger.error(
-            "daily cost limit exceeded", extra={"spent": str(self.spent), "limit": str(self.limit_rub)}
+            "daily cost limit exceeded",
+            extra={"spent": str(self.spent), "limit": str(self.limit_rub)},
         )
         if self.on_pause is not None:
             self.on_pause()

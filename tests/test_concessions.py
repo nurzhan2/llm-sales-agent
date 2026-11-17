@@ -117,6 +117,7 @@ def req(quote_obj, **kwargs):
 # R1 — no trigger, no concession. Ever.
 # ==========================================================================
 
+
 def test_r1_no_triggers_denied(kb, bath_quote):
     d = decide(req(bath_quote, observed_triggers=()), kb)
     assert not d.allowed
@@ -139,6 +140,7 @@ def test_r1_any_valid_trigger_unlocks(kb, bath_quote):
 # R2 — the first price a client hears is always the base price
 # ==========================================================================
 
+
 def test_r2_no_concession_before_base_price_quoted(kb, bath_quote):
     d = decide(req(bath_quote, base_price_quoted=False), kb)
     assert not d.allowed
@@ -151,8 +153,11 @@ def test_r2_allowed_once_base_price_quoted(kb, bath_quote):
 
 def test_r2_holds_even_with_strong_trigger(kb, bath_quote):
     d = decide(
-        req(bath_quote, base_price_quoted=False,
-            observed_triggers=("price_objection", "soft_decline")),
+        req(
+            bath_quote,
+            base_price_quoted=False,
+            observed_triggers=("price_objection", "soft_decline"),
+        ),
         kb,
     )
     assert not d.allowed
@@ -162,6 +167,7 @@ def test_r2_holds_even_with_strong_trigger(kb, bath_quote):
 # ==========================================================================
 # R3 — ascending tiers, and the skipped state
 # ==========================================================================
+
 
 def test_r3_starts_at_tier_one(kb, bath_quote):
     assert decide(req(bath_quote), kb).tier == 1
@@ -195,6 +201,7 @@ def test_r3_exhausted_ladder_denies(kb_generous, bath_quote):
 # ==========================================================================
 # R4 — price tiers unlock after applicable non_price tiers are done
 # ==========================================================================
+
 
 def test_r4_two_attempts_open_price_tiers(kb, bath_quote):
     """max_non_price_attempts_before_price=2: after two real offers the
@@ -248,6 +255,7 @@ def test_r4_all_non_price_skipped_opens_price_immediately(kb):
 # R5 — one tier per dialog
 # ==========================================================================
 
+
 def test_r5_used_tier_is_not_repeated(kb, bath_quote):
     assert decide(req(bath_quote, already_used_tiers=(1,)), kb).tier != 1
 
@@ -265,6 +273,7 @@ def test_r5_never_returns_an_already_used_tier(kb_generous, bath_quote):
 # R6 — every condition must hold
 # ==========================================================================
 
+
 def test_r6_busy_slot_denies(kb, bath_quote):
     """Подтверждённо ЗАНЯТ (slot_availability_known=True по умолчанию) —
     отказ: торговаться за занятый слот нечего, клиенту нужно другое время."""
@@ -278,9 +287,7 @@ def test_r6_unknown_slot_does_not_deny_non_price_tiers(kb, bath_quote):
     """UNKNOWN больше не схлопывается в «занято». Неценовая ступень
     выдаётся как обычно: она уводит клиента ОТ неизвестного слота и не
     тратит денег, значит и одобрения не требует."""
-    d = decide(
-        req(bath_quote, slot_confirmed_free=False, slot_availability_known=False), kb
-    )
+    d = decide(req(bath_quote, slot_confirmed_free=False, slot_availability_known=False), kb)
     assert d.allowed
     assert d.kind == "non_price"
     assert not d.requires_operator_approval
@@ -338,7 +345,7 @@ def test_r6_unknown_slot_still_respects_the_touch_gate(kb, bath_quote):
     d = decide(
         req(
             bath_quote,
-            observed_triggers=("going_silent",),   # валидный триггер, но не price_objection
+            observed_triggers=("going_silent",),  # валидный триггер, но не price_objection
             touch_count=0,
             slot_confirmed_free=False,
             slot_availability_known=False,
@@ -408,8 +415,7 @@ def test_far_date_no_longer_matters_if_slot_is_empty(kb, bath_quote):
     """Ключевое отличие от прежней логики: условие — загрузка, а не близость
     даты. Пустая дата через месяц теперь скидку получает."""
     d = decide(
-        req(bath_quote, already_used_tiers=ALL_NON_PRICE,
-            days_until_date=30, occupancy_ratio=0.1),
+        req(bath_quote, already_used_tiers=ALL_NON_PRICE, days_until_date=30, occupancy_ratio=0.1),
         kb,
     )
     assert d.allowed
@@ -433,6 +439,7 @@ def test_denied_by_occupancy_does_not_ask_the_operator(kb, bath_quote):
 # ==========================================================================
 # R7 — window, provisional or missing
 # ==========================================================================
+
 
 def test_r7_missing_threshold_forbids_price_tiers(kb_no_window, bath_quote):
     """Если порога загрузки нет вовсе — ценовые ступени закрыты."""
@@ -466,11 +473,18 @@ def test_r7_non_price_grants_are_not_stamped_provisional(kb, bath_quote):
 # R8 — floors
 # ==========================================================================
 
+
 def test_r8_dome_price_tier_denied_floor_is_null(kb, dome_quote):
     """Only bath-on-weekend has a confirmed floor. A dome must refuse and
     name the question that would unblock it."""
-    d = decide(req(dome_quote, already_used_tiers=(1, 2, 3, 4, 5),
-                   client_constraints=frozenset({"weekend_only"})), kb)
+    d = decide(
+        req(
+            dome_quote,
+            already_used_tiers=(1, 2, 3, 4, 5),
+            client_constraints=frozenset({"weekend_only"}),
+        ),
+        kb,
+    )
     assert not d.allowed
     assert "R8" in d.denial_reason
     assert d.blocking_question_ids == ("13.2",)
@@ -479,7 +493,7 @@ def test_r8_dome_price_tier_denied_floor_is_null(kb, dome_quote):
 def test_r8_bath_weekend_rate_floor_is_confirmed(kb, bath_quote):
     d = decide(req(bath_quote, already_used_tiers=(1, 2, 3, 4, 5)), kb)
     assert d.allowed
-    assert d.new_quote.total == money(7500)     # 3h × 2500 floor
+    assert d.new_quote.total == money(7500)  # 3h × 2500 floor
     assert d.revenue_delta == money(-3000)
     assert d.revenue_delta_basis == "base_rate"
 
@@ -488,8 +502,10 @@ def test_r8_bath_weekday_has_no_confirmed_rate_floor(kb):
     """The client confirmed the weekend floor only; a weekday bath must not
     inherit it."""
     weekday_quote = quote(PriceRequest("bath_russian", THU, NOON, 3, 6), kb)
-    d = decide(req(weekday_quote, already_used_tiers=(1, 2, 3, 4, 5),
-                   booking_date=THU, days_until_date=1), kb)
+    d = decide(
+        req(weekday_quote, already_used_tiers=(1, 2, 3, 4, 5), booking_date=THU, days_until_date=1),
+        kb,
+    )
     assert not d.allowed
     assert "R8" in d.denial_reason
 
@@ -503,6 +519,7 @@ def test_r8_never_drops_below_floor(kb, bath_quote):
 # ==========================================================================
 # R9 — ratchet, at the grant and at the gate
 # ==========================================================================
+
 
 def test_r9_price_cannot_climb_back_at_grant(kb, bath_quote):
     d = decide(
@@ -544,7 +561,7 @@ def test_r9_gate_clamps_a_fresh_base_quote(kb, bath_quote):
         floor_reached=step2.total,
     )
     step3_raw = quote(PriceRequest("bath_russian", SAT, NOON, 3, 6), kb)
-    assert step3_raw.total == money(10500)          # engine is stateless, as designed
+    assert step3_raw.total == money(10500)  # engine is stateless, as designed
 
     step3 = apply_dialog_floor(step3_raw, state)
     assert step3.total == money(7500)
@@ -558,7 +575,7 @@ def test_r9_gate_is_a_noop_without_a_prior_floor(kb, bath_quote):
 
 def test_r9_gate_does_not_raise_a_cheaper_quote(kb):
     """Clamping is one-directional: a genuinely cheaper booking stays cheap."""
-    cheap = quote(PriceRequest("bath_russian", THU, NOON, 3, 6), kb)   # 7500
+    cheap = quote(PriceRequest("bath_russian", THU, NOON, 3, 6), kb)  # 7500
     state = DialogConcessionState(base_price_quoted=True, floor_reached=money(9000))
     assert apply_dialog_floor(cheap, state).total == cheap.total
 
@@ -581,6 +598,7 @@ def test_r9_gate_drops_the_stale_hourly_rate(kb, bath_quote):
 # ==========================================================================
 # R10 — limits
 # ==========================================================================
+
 
 def test_r10_daily_limit_denies(kb, bath_quote):
     d = decide(req(bath_quote, concessions_today=5), kb)
@@ -623,6 +641,7 @@ def test_r10_two_price_tiers_exhaust_the_dialog_limit(kb, bath_quote):
 # R11 — exchange is structural, validated at load time
 # ==========================================================================
 
+
 def test_r11_every_template_declares_a_valid_exchange(kb):
     policy = kb.concessions.policy
     for tier_id, template in policy.offer_templates.items():
@@ -640,7 +659,9 @@ def test_r11_rendered_offer_contains_the_clause_text(kb, bath_quote):
 
 def test_r11_template_without_placeholder_fails_at_load(kb):
     raw = copy.deepcopy(_raw())
-    raw["concessions"]["policy"]["offer_templates"]["smaller_zone"]["text"] = "Могу сделать дешевле."
+    raw["concessions"]["policy"]["offer_templates"]["smaller_zone"]["text"] = (
+        "Могу сделать дешевле."
+    )
     with pytest.raises(Exception, match="exchange_clause"):
         KnowledgeBase.model_validate(raw)
 
@@ -673,6 +694,7 @@ def test_r11_a_wording_only_check_would_have_passed_this(kb):
 # ==========================================================================
 # R12 — logging
 # ==========================================================================
+
 
 def test_r12_denial_is_logged(kb, bath_quote, caplog):
     with caplog.at_level("INFO", logger="parmangal.concessions"):
@@ -707,10 +729,13 @@ def test_r12_log_records_provisional_and_basis(kb, bath_quote, caplog):
 # третьего касания, кроме случая явного возражения по цене.
 # ==========================================================================
 
+
 def test_r13_price_tier_denied_below_min_touches(kb, bath_quote):
     d = decide(
         req(
-            bath_quote, already_used_tiers=ALL_NON_PRICE, touch_count=1,
+            bath_quote,
+            already_used_tiers=ALL_NON_PRICE,
+            touch_count=1,
             observed_triggers=("going_silent",),
         ),
         kb,
@@ -722,7 +747,9 @@ def test_r13_price_tier_denied_below_min_touches(kb, bath_quote):
 def test_r13_price_tier_denied_at_two_touches(kb, bath_quote):
     d = decide(
         req(
-            bath_quote, already_used_tiers=ALL_NON_PRICE, touch_count=2,
+            bath_quote,
+            already_used_tiers=ALL_NON_PRICE,
+            touch_count=2,
             observed_triggers=("soft_decline",),
         ),
         kb,
@@ -734,7 +761,9 @@ def test_r13_price_tier_denied_at_two_touches(kb, bath_quote):
 def test_r13_price_tier_allowed_at_three_touches(kb, bath_quote):
     d = decide(
         req(
-            bath_quote, already_used_tiers=ALL_NON_PRICE, touch_count=3,
+            bath_quote,
+            already_used_tiers=ALL_NON_PRICE,
+            touch_count=3,
             observed_triggers=("going_silent",),
         ),
         kb,
@@ -747,7 +776,9 @@ def test_r13_price_objection_bypasses_touch_requirement_entirely(kb, bath_quote)
     цену» — жалоба обходит порог, а не складывается с ним."""
     d = decide(
         req(
-            bath_quote, already_used_tiers=ALL_NON_PRICE, touch_count=0,
+            bath_quote,
+            already_used_tiers=ALL_NON_PRICE,
+            touch_count=0,
             observed_triggers=("price_objection",),
         ),
         kb,
@@ -775,8 +806,9 @@ def test_r13_missing_condition_does_not_gate_anything(kb, bath_quote):
     kb_no_gate = KnowledgeBase.model_validate(raw)
     q = quote(PriceRequest("bath_russian", SAT, NOON, 3, 6), kb_no_gate)
     d = decide(
-        req(q, already_used_tiers=ALL_NON_PRICE, touch_count=0,
-            observed_triggers=("going_silent",)),
+        req(
+            q, already_used_tiers=ALL_NON_PRICE, touch_count=0, observed_triggers=("going_silent",)
+        ),
         kb_no_gate,
     )
     assert d.allowed
@@ -785,9 +817,6 @@ def test_r13_missing_condition_does_not_gate_anything(kb, bath_quote):
 # ==========================================================================
 # revenue_delta accounting
 # ==========================================================================
-
-
-
 
 
 def test_non_price_tier_has_zero_revenue_delta_and_no_basis(kb, bath_quote):
@@ -805,6 +834,7 @@ def test_rate_concession_delta_is_negative(kb, bath_quote):
 # ==========================================================================
 # Applicability predicates
 # ==========================================================================
+
 
 def test_applicability_smaller_zone_true_when_a_cheaper_one_fits(kb, bath_quote):
     """Баня на 6 гостей в выходной стоит 3500/час; купол на 7-10 мест —
@@ -872,6 +902,7 @@ def test_unknown_predicate_raises(kb, bath_quote):
 # Cross-cutting
 # ==========================================================================
 
+
 def test_concession_refused_on_non_ok_quote(kb):
     blocked = quote(PriceRequest("bath_russian", SAT, time(21, 0), 4, 6), kb)
     assert blocked.status == "blocked"
@@ -894,13 +925,16 @@ def test_decision_is_deterministic(kb, bath_quote):
     first = decide(req(bath_quote), kb)
     second = decide(req(bath_quote), kb)
     assert (first.allowed, first.tier, first.offer_template) == (
-        second.allowed, second.tier, second.offer_template,
+        second.allowed,
+        second.tier,
+        second.offer_template,
     )
 
 
 # ==========================================================================
 # Ступень 7 — суточная ставка домика (ответ 2.1)
 # ==========================================================================
+
 
 @pytest.fixture(scope="module")
 def house_weekday_quote(kb):
@@ -912,8 +946,12 @@ def test_house_daily_concession_never_goes_below_the_floor(kb_generous, house_we
     """2.1: пол 9500. С 29.10 будни домика тоже 15000 - уступка возможна,
     но не ниже пола."""
     d = decide(
-        req(house_weekday_quote, booking_date=THU,
-            already_used_tiers=(1, 2, 3, 4, 5, 6), occupancy_ratio=0.2),
+        req(
+            house_weekday_quote,
+            booking_date=THU,
+            already_used_tiers=(1, 2, 3, 4, 5, 6),
+            occupancy_ratio=0.2,
+        ),
         kb_generous,
     )
     assert d.allowed
@@ -929,8 +967,7 @@ def test_house_daily_tier_is_reachable_and_logs_the_delta(kb_generous, kb):
         total=money(15000),
     )
     d = decide(
-        req(inflated, booking_date=THU,
-            already_used_tiers=(1, 2, 3, 4, 5, 6), occupancy_ratio=0.2),
+        req(inflated, booking_date=THU, already_used_tiers=(1, 2, 3, 4, 5, 6), occupancy_ratio=0.2),
         kb_generous,
     )
     assert d.allowed
@@ -939,7 +976,7 @@ def test_house_daily_tier_is_reachable_and_logs_the_delta(kb_generous, kb):
     # Анкор 15000 → пол 9500: самая крупная уступка в проекте.
     assert d.revenue_delta == money(-5500)
     assert d.revenue_delta_basis == "base_rate"
-    assert d.provisional_policy is True      # порог загрузки пока наш
+    assert d.provisional_policy is True  # порог загрузки пока наш
 
 
 def test_house_daily_offer_names_both_numbers(kb_generous, kb):
@@ -949,8 +986,7 @@ def test_house_daily_offer_names_both_numbers(kb_generous, kb):
         quote(PriceRequest("house_relax", THU, None, None, 8), kb), total=money(15000)
     )
     d = decide(
-        req(inflated, booking_date=THU,
-            already_used_tiers=(1, 2, 3, 4, 5, 6), occupancy_ratio=0.2),
+        req(inflated, booking_date=THU, already_used_tiers=(1, 2, 3, 4, 5, 6), occupancy_ratio=0.2),
         kb_generous,
     )
     assert "9500" in d.offer_template
@@ -961,10 +997,6 @@ def test_house_daily_offer_names_both_numbers(kb_generous, kb):
 def test_daily_tier_not_applicable_to_hourly_zone(kb, bath_quote):
     tier = next(t for t in kb.concessions.policy.ladder if t.id == "reduce_daily_rate")
     assert not is_applicable(tier, req(bath_quote), kb)
-
-
-
-
 
 
 def test_two_hours_are_sold_without_a_concession(kb):

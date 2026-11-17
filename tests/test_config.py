@@ -28,17 +28,13 @@ def test_leaves_already_correct_scheme_alone():
 
 
 def test_sslmode_require_moves_into_connect_args():
-    url, connect_args = normalize_database_url(
-        "postgres://u:p@host:5432/db?sslmode=require"
-    )
+    url, connect_args = normalize_database_url("postgres://u:p@host:5432/db?sslmode=require")
     assert "sslmode" not in url
     assert connect_args == {"ssl": True}
 
 
 def test_sslmode_disable_is_dropped_without_forcing_ssl():
-    url, connect_args = normalize_database_url(
-        "postgres://u:p@host:5432/db?sslmode=disable"
-    )
+    url, connect_args = normalize_database_url("postgres://u:p@host:5432/db?sslmode=disable")
     assert "sslmode" not in url
     assert connect_args == {}
 

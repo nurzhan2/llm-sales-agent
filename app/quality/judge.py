@@ -15,7 +15,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("parmangal.judge")
 
@@ -55,9 +55,7 @@ class JudgeScore:
 
     @property
     def average(self) -> float:
-        return round(
-            (self.tone + self.usefulness + self.deal_progress + self.naturalness) / 4, 2
-        )
+        return round((self.tone + self.usefulness + self.deal_progress + self.naturalness) / 4, 2)
 
 
 @dataclass
@@ -77,15 +75,13 @@ class JudgeSummary:
             "usefulness": self._mean("usefulness"),
             "deal_progress": self._mean("deal_progress"),
             "naturalness": self._mean("naturalness"),
-            "overall": round(
-                sum(s.average for s in usable) / len(usable), 2
-            ) if usable else 0.0,
+            "overall": round(sum(s.average for s in usable) / len(usable), 2) if usable else 0.0,
             "better_than_manager": sum(1 for s in usable if s.better_than_manager),
             "judged": len(usable),
         }
 
 
-def _extract_json(text: str) -> Optional[dict]:
+def _extract_json(text: str) -> dict | None:
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         return None
@@ -116,9 +112,7 @@ class Judge:
                 system=RUBRIC,
                 messages=[{"role": "user", "content": payload}],
             )
-            raw = "".join(
-                b.text for b in response.content if getattr(b, "type", None) == "text"
-            )
+            raw = "".join(b.text for b in response.content if getattr(b, "type", None) == "text")
         except Exception as exc:  # noqa: BLE001
             logger.warning("judge call failed: %s", exc)
             return JudgeScore(failed=True, why=f"судья недоступен: {type(exc).__name__}")

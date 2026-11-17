@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import html
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
 
 from app.quality.asserts import Violation
 
@@ -21,7 +20,7 @@ class TurnRecord:
     tool_calls: list[str] = field(default_factory=list)
     quote_statuses: list[str] = field(default_factory=list)
     violations: list[Violation] = field(default_factory=list)
-    scores: Optional[dict] = None
+    scores: dict | None = None
     # Метрики для сравнения провайдеров (промт №12, Часть 4).
     latency_ms: float = 0.0
     hit_iteration_limit: bool = False
@@ -56,9 +55,9 @@ class RunResult:
         return {
             "total_turns": len(self.turns),
             "failed_turns": len(self.failed_turns),
-            "pass_rate": round(
-                1 - len(self.failed_turns) / len(self.turns), 3
-            ) if self.turns else 0.0,
+            "pass_rate": round(1 - len(self.failed_turns) / len(self.turns), 3)
+            if self.turns
+            else 0.0,
             "violations_by_rule": self._violations_by_rule(),
             "judge": self.judge_summary,
             "model_available": self.model_available,
@@ -107,7 +106,7 @@ def render_html(result: RunResult, title: str = "Прогон на реальн�
         f"<style>{_CSS}</style>",
         '<div class="wrap">',
         f"<h1>{e(title)}</h1>",
-        f'<div class="sub">27 размеченных диалогов · docs/analysis/dialogs.json</div>',
+        '<div class="sub">27 размеченных диалогов · docs/analysis/dialogs.json</div>',
     ]
 
     key_name = "DEEPSEEK_API_KEY" if result.provider == "deepseek" else "ANTHROPIC_API_KEY"
@@ -129,7 +128,9 @@ def render_html(result: RunResult, title: str = "Прогон на реальн�
 
     fail_class = "fail" if data["failed_turns"] else "ok"
     parts.append('<div class="cards">')
-    parts.append(f'<div class="card"><div class="n">{data["total_turns"]}</div><div class="l">ходов</div></div>')
+    parts.append(
+        f'<div class="card"><div class="n">{data["total_turns"]}</div><div class="l">ходов</div></div>'
+    )
     parts.append(
         f'<div class="card {fail_class}"><div class="n">{data["failed_turns"]}</div>'
         '<div class="l">с нарушениями</div></div>'
@@ -152,9 +153,7 @@ def render_html(result: RunResult, title: str = "Прогон на реальн�
     if data["violations_by_rule"]:
         rows = "".join(
             f"<tr><td>{e(rule)}</td><td>{count}</td></tr>"
-            for rule, count in sorted(
-                data["violations_by_rule"].items(), key=lambda kv: -kv[1]
-            )
+            for rule, count in sorted(data["violations_by_rule"].items(), key=lambda kv: -kv[1])
         )
         parts.append(
             '<div class="banner"><b>Нарушения по правилам</b>'
@@ -176,17 +175,20 @@ def render_html(result: RunResult, title: str = "Прогон на реальн�
         if turn.scores:
             score = (
                 f'<span class="score">{turn.scores.get("average", "")}</span><br>'
-                f'<small>{e(str(turn.scores.get("why", ""))[:120])}</small>'
+                f"<small>{e(str(turn.scores.get('why', ''))[:120])}</small>"
             )
         parts.append(
             f"<tr{css}>"
             f"<td>{e(turn.dialog_id)}<br><small>{e(turn.zone_topic)}</small></td>"
-            f'<td>{e(turn.client_text[:300])}</td>'
+            f"<td>{e(turn.client_text[:300])}</td>"
             f'<td class="mgr">{e(turn.manager_text[:300])}</td>'
             f'<td class="agent">{e(turn.agent_text[:300])}'
-            + (f'<br><small><b>рубеж:</b> {e(turn.guard_rail)}<br>'
-               f'<b>задержано:</b> {e(turn.withheld_text[:300])}</small>'
-               if turn.guard_rail else "")
+            + (
+                f"<br><small><b>рубеж:</b> {e(turn.guard_rail)}<br>"
+                f"<b>задержано:</b> {e(turn.withheld_text[:300])}</small>"
+                if turn.guard_rail
+                else ""
+            )
             + "</td>"
             f"<td>{rules}<br><small>{detail}</small></td>"
             f"<td>{score}</td>"
@@ -222,7 +224,5 @@ def compare_to_baseline(current: dict, baseline: dict) -> list[str]:
     cur_judge = current.get("judge") or {}
     if base_judge.get("overall") and cur_judge.get("overall"):
         if cur_judge["overall"] < base_judge["overall"] - 0.2:
-            problems.append(
-                f"средний балл: {base_judge['overall']} → {cur_judge['overall']}"
-            )
+            problems.append(f"средний балл: {base_judge['overall']} → {cur_judge['overall']}")
     return problems

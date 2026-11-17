@@ -11,46 +11,43 @@ import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
-from typing import Any
 
 import pytest
 
 from app.agent.debounce import Debouncer
 from app.agent.loop import (
+    AMOUNT_MISMATCH_VIOLATION,
     AVAILABILITY_GUARD_HANDOFF,
     AVAILABILITY_GUARD_HANDOFF_REASON,
     AVAILABILITY_GUARD_LADDER,
     AVAILABILITY_GUARD_REPLIES,
     AVAILABILITY_GUARD_VIOLATION,
-    QUESTION_GUARD_VIOLATION,
     DATE_GUARD_VIOLATION,
-    AgentLoop,
-    TurnResult,
-    AMOUNT_MISMATCH_VIOLATION,
-    _canonical_amount,
-    amounts_in_payload,
-    amounts_sent_before,
-    availability_claim,
-    date_contradicts_now,
-    estimate_cost_rub,
     GUARD_RAIL_FALLBACK,
+    GUARD_RAIL_VIOLATION,
     HANDED_TO_MANAGER,
     PROMISE_GUARD_VIOLATION,
     PROMISE_TO_RETURN,
-    GUARD_RAIL_VIOLATION,
+    QUESTION_GUARD_VIOLATION,
     SELF_DISCLOSURE,
     SELF_DISCLOSURE_VIOLATION,
+    AgentLoop,
+    _canonical_amount,
+    amounts_in_payload,
+    amounts_sent_before,
     asks_for_a_human,
-    weekday_contradicts_date,
-    PROMISE_TO_RETURN,
+    availability_claim,
+    date_contradicts_now,
     escalation_topic_in,
+    estimate_cost_rub,
     guard_repeats,
     guard_substitution,
-    not_a_verbatim_repeat,
     invented_amounts,
     normalize_tool_use,
+    not_a_verbatim_repeat,
     sanitized_assistant_content,
     summarize_history,
+    weekday_contradicts_date,
 )
 from app.agent.prompts import build_now_block, build_system_prompt
 from app.agent.slots import Slots
@@ -68,6 +65,7 @@ def kb():
 # --------------------------------------------------------------------------
 # Мок Anthropic
 # --------------------------------------------------------------------------
+
 
 @dataclass
 class TextBlock:
@@ -126,9 +124,10 @@ def loop_for(kb, script, label="question", executor=None):
 # Системный промт
 # --------------------------------------------------------------------------
 
+
 def test_system_prompt_marks_catalog_for_caching(kb):
     blocks = build_system_prompt(kb)
-    assert len(blocks) == 3          # правила, каталог, «Сейчас:»
+    assert len(blocks) == 3  # правила, каталог, «Сейчас:»
     assert blocks[1]["cache_control"] == {"type": "ephemeral"}
 
 
@@ -192,8 +191,8 @@ def test_catalog_states_every_capacity(kb):
     """1.6, 3.3, 4.1: все вместимости подтверждены, оговорки больше не нужны."""
     catalog = build_system_prompt(kb)[1]["text"]
     assert "вместимость не подтверждена" not in catalog
-    assert "до 12 чел." in catalog     # баня «Русский стиль» и гриль-домик
-    assert "до 7 чел." in catalog      # купола с креслами и стульями
+    assert "до 12 чел." in catalog  # баня «Русский стиль» и гриль-домик
+    assert "до 7 чел." in catalog  # купола с креслами и стульями
 
 
 def test_catalog_surfaces_client_alt_name_for_bath_knight(kb):
@@ -207,6 +206,7 @@ def test_catalog_surfaces_client_alt_name_for_bath_knight(kb):
 # --------------------------------------------------------------------------
 # Инструменты: описания
 # --------------------------------------------------------------------------
+
 
 def test_calculate_price_is_described_as_the_only_way_to_get_a_price():
     tool = next(t for t in TOOLS if t["name"] == "calculate_price")
@@ -229,11 +229,18 @@ def test_all_tools_have_schemas():
 # Инструмент расчёта цены
 # --------------------------------------------------------------------------
 
+
 async def test_calculate_price_ok(kb):
     ex = ToolExecutor(kb, "d1")
     result = await ex.run(
         "calculate_price",
-        {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "14:00", "hours": 3, "guests": 6},
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-07-18",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
     )
     assert result["status"] == "ok"
     assert result["total"] == 10500
@@ -247,8 +254,13 @@ async def test_calculate_price_blocked_carries_instruction_not_number(kb):
     ex = ToolExecutor(kb, "d1")
     result = await ex.run(
         "calculate_price",
-        {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "21:00",
-         "hours": 4, "guests": 6},
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-07-18",
+            "start_time": "21:00",
+            "hours": 4,
+            "guests": 6,
+        },
     )
     assert result["status"] == "blocked"
     assert "total" not in result
@@ -272,7 +284,13 @@ async def test_calculate_price_invalid_offers_alternatives(kb):
     ex = ToolExecutor(kb, "d1")
     result = await ex.run(
         "calculate_price",
-        {"zone_id": "bath_knight", "date": "2026-07-18", "start_time": "12:00", "hours": 3, "guests": 9},
+        {
+            "zone_id": "bath_knight",
+            "date": "2026-07-18",
+            "start_time": "12:00",
+            "hours": 3,
+            "guests": 9,
+        },
     )
     assert result["status"] == "invalid"
     assert result["suggested_alternatives"]
@@ -291,16 +309,20 @@ async def test_quote_passes_through_dialog_floor(kb):
     ex = ToolExecutor(kb, "d1", state=state)
     result = await ex.run(
         "calculate_price",
-        {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "14:00", "hours": 3, "guests": 6},
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-07-18",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
     )
     # Базовая цена 10500, но клиенту уже обещали 7500 — вверх не идём.
     assert result["total"] == 7500
 
 
 def test_quote_to_dict_hides_derived_hourly_rate(kb):
-    q = quote(
-        PriceRequest("dome_bags", date(2026, 7, 18), None, 6, 8), kb
-    )
+    q = quote(PriceRequest("dome_bags", date(2026, 7, 18), None, 6, 8), kb)
     if q.status == "needs_input":
         from datetime import time
 
@@ -314,6 +336,7 @@ def test_quote_to_dict_hides_derived_hourly_rate(kb):
 # Уступки через инструмент
 # --------------------------------------------------------------------------
 
+
 async def test_concession_requires_a_price_first(kb):
     ex = ToolExecutor(kb, "d1")
     result = await ex.run("request_concession", {"observed_triggers": ["price_objection"]})
@@ -325,7 +348,13 @@ async def test_denied_concession_tells_model_not_to_mention_discount(kb):
     ex = ToolExecutor(kb, "d1")
     await ex.run(
         "calculate_price",
-        {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "14:00", "hours": 3, "guests": 6},
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-07-18",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
     )
     result = await ex.run("request_concession", {"observed_triggers": []})
     assert result["allowed"] is False
@@ -336,13 +365,20 @@ async def test_concessions_today_provider_feeds_the_daily_limit(kb):
     """R10 был мёртв: concessions_today был захардкожен в 0 внутри
     ToolExecutor, поэтому max_concessions_per_day (5 в concessions.yaml)
     не срабатывал никогда, сколько бы уступок ни выдали за день."""
+
     async def provider():
         return 5
 
     ex = ToolExecutor(kb, "d1", concessions_today_provider=provider)
     await ex.run(
         "calculate_price",
-        {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "14:00", "hours": 3, "guests": 6},
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-07-18",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
     )
 
     result = await ex.run("request_concession", {"observed_triggers": ["price_objection"]})
@@ -357,7 +393,13 @@ async def test_without_a_provider_the_daily_limit_stays_at_zero(kb):
     ex = ToolExecutor(kb, "d1")
     await ex.run(
         "calculate_price",
-        {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "14:00", "hours": 3, "guests": 6},
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-07-18",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
     )
 
     await ex.run("request_concession", {"observed_triggers": ["price_objection"]})
@@ -368,6 +410,7 @@ async def test_without_a_provider_the_daily_limit_stays_at_zero(kb):
 # --------------------------------------------------------------------------
 # Прочие инструменты
 # --------------------------------------------------------------------------
+
 
 async def test_get_zones_filters_by_capacity(kb):
     ex = ToolExecutor(kb, "d1")
@@ -414,6 +457,7 @@ async def test_past_date_does_not_escalate_even_without_a_provider(kb):
 # «29 августа» досчиталось до прошлого года, book_times за 422, эскалация)
 # --------------------------------------------------------------------------
 
+
 class _DatedBookingProvider:
     """check_availability, отвечающий по-разному в зависимости от даты —
     нужен find_next_available, чтобы находить РАЗНЫЕ свободные даты."""
@@ -457,13 +501,17 @@ async def test_busy_answer_carries_ready_alternatives(kb):
     упирается в тупик, хотя купола свободны».
     """
     provider = _BusyExceptZones({"dome_bags", "dome_chairs"})
-    ex = ToolExecutor(kb, "d1", booking_provider=provider,
-                      today_fn=lambda: date(2026, 9, 1))
+    ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: date(2026, 9, 1))
 
-    result = await ex.run("check_availability", {
-        "zone_id": "bath_russian", "date": "2026-09-05",
-        "start_time": "18:00", "hours": 4,
-    })
+    result = await ex.run(
+        "check_availability",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-09-05",
+            "start_time": "18:00",
+            "hours": 4,
+        },
+    )
 
     assert result["status"] == "busy"
     ids = [a["zone_id"] for a in result["alternatives"]]
@@ -485,12 +533,9 @@ async def test_the_requested_zone_is_never_its_own_alternative(kb):
     ни один тест не покраснеет.
     """
     provider = _BusyExceptZones({z.id for z in kb.catalog.zones})  # свободны ВСЕ
-    ex = ToolExecutor(kb, "d1", booking_provider=provider,
-                      today_fn=lambda: date(2026, 9, 1))
+    ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: date(2026, 9, 1))
 
-    found = await ex._free_neighbours(
-        "bath_russian", date(2026, 9, 5), None, None, None
-    )
+    found = await ex._free_neighbours("bath_russian", date(2026, 9, 5), None, None, None)
 
     assert found, "все зоны свободны — альтернативы обязаны найтись"
     assert "bath_russian" not in [a["zone_id"] for a in found]
@@ -501,13 +546,18 @@ async def test_alternatives_respect_capacity(kb):
     # Свободны все, КРОМЕ запрошенной: иначе статус был бы "free" и
     # альтернативы не понадобились бы вовсе.
     provider = _BusyExceptZones({z.id for z in kb.catalog.zones} - {"yurt"})
-    ex = ToolExecutor(kb, "d1", booking_provider=provider,
-                      today_fn=lambda: date(2026, 9, 1))
+    ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: date(2026, 9, 1))
 
-    result = await ex.run("check_availability", {
-        "zone_id": "yurt", "date": "2026-09-05", "start_time": "18:00",
-        "hours": 4, "guests": 20,
-    })
+    result = await ex.run(
+        "check_availability",
+        {
+            "zone_id": "yurt",
+            "date": "2026-09-05",
+            "start_time": "18:00",
+            "hours": 4,
+            "guests": 20,
+        },
+    )
 
     for alt in result["alternatives"]:
         zone = next(z for z in kb.catalog.zones if z.id == alt["zone_id"])
@@ -520,12 +570,16 @@ async def test_alternatives_are_capped(kb):
     запросов на один ход клиента; и список длиннее трёх читается как
     отписка, а не как помощь."""
     provider = _BusyExceptZones({z.id for z in kb.catalog.zones} - {"bath_russian"})
-    ex = ToolExecutor(kb, "d1", booking_provider=provider,
-                      today_fn=lambda: date(2026, 9, 1))
+    ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: date(2026, 9, 1))
 
-    result = await ex.run("check_availability", {
-        "zone_id": "bath_russian", "date": "2026-09-05", "start_time": "18:00",
-    })
+    result = await ex.run(
+        "check_availability",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-09-05",
+            "start_time": "18:00",
+        },
+    )
 
     assert len(result["alternatives"]) <= ToolExecutor.MAX_ALTERNATIVES
 
@@ -534,9 +588,13 @@ async def test_no_alternatives_without_a_booking_provider(kb):
     """Без календаря «свободных соседей» знать неоткуда — и выдумывать их
     нельзя ровно так же, как занятость."""
     ex = ToolExecutor(kb, "d1", today_fn=lambda: date(2026, 9, 1))
-    result = await ex.run("check_availability", {
-        "zone_id": "bath_russian", "date": "2026-09-05",
-    })
+    result = await ex.run(
+        "check_availability",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-09-05",
+        },
+    )
     assert result["status"] == "unknown"
 
 
@@ -556,7 +614,9 @@ async def test_resolve_date_tool_rejects_unparseable_text(kb):
     ex = ToolExecutor(kb, "d1", today_fn=lambda: date(2026, 8, 27))
     result = await ex.run("resolve_date", {"text": "как-нибудь на днях"})
     assert "error" in result
-    assert "переспроси" in result["instruction"].lower() or "уточни" in result["instruction"].lower()
+    assert (
+        "переспроси" in result["instruction"].lower() or "уточни" in result["instruction"].lower()
+    )
 
 
 async def test_resolve_date_tool_rejects_an_explicit_past_date(kb):
@@ -575,15 +635,16 @@ async def test_check_availability_rejects_a_past_date_without_asking_the_provide
     result = await ex.run("check_availability", {"zone_id": "bath_russian", "date": "2025-08-29"})
 
     assert "error" in result
-    assert provider.calls == []   # до провайдера дело не дошло вообще
+    assert provider.calls == []  # до провайдера дело не дошло вообще
 
 
 async def test_check_availability_busy_instruction_points_to_find_next_available(kb):
-    provider = _DatedBookingProvider(free_dates=set())   # всё занято
+    provider = _DatedBookingProvider(free_dates=set())  # всё занято
     ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: date(2026, 8, 27))
 
     result = await ex.run(
-        "check_availability", {"zone_id": "bath_russian", "date": "2026-08-29", "start_time": "14:00"}
+        "check_availability",
+        {"zone_id": "bath_russian", "date": "2026-08-29", "start_time": "14:00"},
     )
 
     assert result["status"] == "busy"
@@ -592,13 +653,18 @@ async def test_check_availability_busy_instruction_points_to_find_next_available
 
 async def test_find_next_available_returns_dates_in_ascending_order(kb):
     today = date(2026, 8, 27)
-    provider = _DatedBookingProvider(free_dates={today + timedelta(days=5), today + timedelta(days=2)})
+    provider = _DatedBookingProvider(
+        free_dates={today + timedelta(days=5), today + timedelta(days=2)}
+    )
     ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: today)
 
     result = await ex.run("find_next_available", {"zone_id": "bath_russian", "hours": 2})
 
     dates = [entry["date"] for entry in result["dates"]]
-    assert dates == [(today + timedelta(days=2)).isoformat(), (today + timedelta(days=5)).isoformat()]
+    assert dates == [
+        (today + timedelta(days=2)).isoformat(),
+        (today + timedelta(days=5)).isoformat(),
+    ]
 
 
 async def test_find_next_available_stops_at_the_requested_limit(kb):
@@ -615,7 +681,7 @@ async def test_find_next_available_does_not_search_past_the_14_day_horizon(kb):
     """Ограничение горизонта — оно же потолок числа запросов к провайдеру за
     один вызов, чтобы не выстрелить сотней обращений в YCLIENTS за один ход."""
     today = date(2026, 8, 27)
-    provider = _DatedBookingProvider(free_dates={today + timedelta(days=20)})   # за горизонтом
+    provider = _DatedBookingProvider(free_dates={today + timedelta(days=20)})  # за горизонтом
     ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: today)
 
     result = await ex.run("find_next_available", {"zone_id": "bath_russian"})
@@ -632,7 +698,7 @@ async def test_find_next_available_rejects_a_zone_that_does_not_fit_the_guests(k
     result = await ex.run("find_next_available", {"zone_id": "yurt", "guests": 6})
 
     assert result["dates"] == []
-    assert provider.calls == []   # вместимость проверяется раньше похода к провайдеру
+    assert provider.calls == []  # вместимость проверяется раньше похода к провайдеру
     assert "get_zones" in result["instruction"]
 
 
@@ -658,10 +724,16 @@ class _PhotosByZone:
 async def test_photos_follow_the_bath_that_was_just_priced(kb):
     """Жалоба 29.10: «считает одну баню, а фото отправляет другой»."""
     ex = ToolExecutor(kb, "d1", photo_provider=_PhotosByZone())
-    priced = await ex.run("calculate_price", {
-        "zone_id": "bath_russian", "date": "2026-11-05", "start_time": "14:00",
-        "hours": 3, "guests": 4,
-    })
+    priced = await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-11-05",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 4,
+        },
+    )
     assert priced["status"] == "ok"
 
     await ex.run("get_photos", {"zone_id": "bath_garage"})
@@ -671,10 +743,16 @@ async def test_photos_follow_the_bath_that_was_just_priced(kb):
 
 async def test_photos_of_another_category_are_sent_as_asked(kb):
     ex = ToolExecutor(kb, "d1", photo_provider=_PhotosByZone())
-    await ex.run("calculate_price", {
-        "zone_id": "bath_russian", "date": "2026-11-05", "start_time": "14:00",
-        "hours": 3, "guests": 4,
-    })
+    await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-11-05",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 4,
+        },
+    )
     await ex.run("get_photos", {"zone_id": "grill_house"})
     assert all(p.startswith("grill_house") for p in ex.photos_to_send)
 
@@ -718,13 +796,24 @@ async def test_unknown_tool_does_not_crash(kb):
 # Цикл
 # --------------------------------------------------------------------------
 
+
 async def test_price_question_triggers_calculate_price(kb):
     """Главный инвариант: вопрос о цене приводит к вызову инструмента."""
     script = [
-        FakeResponse(content=[ToolUseBlock("calculate_price", {
-            "zone_id": "bath_russian", "date": "2026-07-18",
-            "start_time": "14:00", "hours": 3, "guests": 6,
-        })]),
+        FakeResponse(
+            content=[
+                ToolUseBlock(
+                    "calculate_price",
+                    {
+                        "zone_id": "bath_russian",
+                        "date": "2026-07-18",
+                        "start_time": "14:00",
+                        "hours": 3,
+                        "guests": 6,
+                    },
+                )
+            ]
+        ),
         FakeResponse(content=[TextBlock("3 ч × 3500 ₽ = 10500 ₽")]),
     ]
     agent, _ = loop_for(kb, script)
@@ -764,10 +853,20 @@ async def test_iteration_limit_escalates(kb):
 
 async def test_blocked_quote_does_not_become_a_number_in_text(kb):
     script = [
-        FakeResponse(content=[ToolUseBlock("calculate_price", {
-            "zone_id": "bath_russian", "date": "2026-07-18",
-            "start_time": "21:00", "hours": 4, "guests": 6,
-        })]),
+        FakeResponse(
+            content=[
+                ToolUseBlock(
+                    "calculate_price",
+                    {
+                        "zone_id": "bath_russian",
+                        "date": "2026-07-18",
+                        "start_time": "21:00",
+                        "hours": 4,
+                        "guests": 6,
+                    },
+                )
+            ]
+        ),
         FakeResponse(content=[TextBlock("Уточню у менеджера, можно ли продлить.")]),
     ]
     agent, _ = loop_for(kb, script)
@@ -833,6 +932,7 @@ def test_unknown_model_costs_zero_rather_than_crashing():
 # Последний рубеж (промт №12, Часть 2): цена в тексте без вызова инструмента
 # --------------------------------------------------------------------------
 
+
 async def test_guard_rail_blocks_price_text_with_no_tool_call(kb):
     """Не важно, какой провайдер это написал — если за весь ход не было ни
     одного вызова calculate_price, а в тексте всплыла цена, клиенту это
@@ -857,10 +957,20 @@ async def test_guard_rail_does_not_misfire_when_tool_was_actually_called(kb):
     """Санитарная проверка: легитимный расчёт с реальным вызовом инструмента
     не должен спотыкаться о собственный текст с ценой."""
     script = [
-        FakeResponse(content=[ToolUseBlock("calculate_price", {
-            "zone_id": "bath_russian", "date": "2026-07-18",
-            "start_time": "18:00", "hours": 3, "guests": 4,
-        })]),
+        FakeResponse(
+            content=[
+                ToolUseBlock(
+                    "calculate_price",
+                    {
+                        "zone_id": "bath_russian",
+                        "date": "2026-07-18",
+                        "start_time": "18:00",
+                        "hours": 3,
+                        "guests": 4,
+                    },
+                )
+            ]
+        ),
         FakeResponse(content=[TextBlock("С вас 10500 ₽ за 3 часа.")]),
     ]
     agent, _ = loop_for(kb, script)
@@ -873,15 +983,26 @@ async def test_guard_rail_does_not_misfire_when_tool_was_actually_called(kb):
 # Восстановление после кривых аргументов инструмента (промт №12, Часть 2)
 # --------------------------------------------------------------------------
 
+
 async def test_malformed_tool_args_return_recoverable_error_not_a_crash(kb):
     """calculate_price с hours нечисловым падает внутри движка — ToolExecutor
     уже ловит это и отдаёт модели {"error": ...} вместо падения всего хода.
     Здесь проверяем, что AgentLoop это видит и считает как ошибку вызова."""
     script = [
-        FakeResponse(content=[ToolUseBlock("calculate_price", {
-            "zone_id": "bath_russian", "date": "2026-07-18",
-            "start_time": "18:00", "hours": "много", "guests": 4,
-        })]),
+        FakeResponse(
+            content=[
+                ToolUseBlock(
+                    "calculate_price",
+                    {
+                        "zone_id": "bath_russian",
+                        "date": "2026-07-18",
+                        "start_time": "18:00",
+                        "hours": "много",
+                        "guests": 4,
+                    },
+                )
+            ]
+        ),
         FakeResponse(content=[TextBlock("Уточню у менеджера.")]),
     ]
     agent, client = loop_for(kb, script)
@@ -898,6 +1019,7 @@ async def test_malformed_tool_args_return_recoverable_error_not_a_crash(kb):
 # (промт №12, Часть 5)
 # --------------------------------------------------------------------------
 
+
 async def test_provider_switch_mid_dialog_keeps_concession_state(kb):
     """Состояние уступок (DialogConcessionState) живёт в ToolExecutor/БД,
     не в AgentLoop — переключение LLM_PROVIDER посреди диалога не должно
@@ -906,10 +1028,20 @@ async def test_provider_switch_mid_dialog_keeps_concession_state(kb):
     shared_executor = ToolExecutor(kb, "d1")
 
     first_script = [
-        FakeResponse(content=[ToolUseBlock("calculate_price", {
-            "zone_id": "bath_russian", "date": "2026-07-18",
-            "start_time": "18:00", "hours": 3, "guests": 4,
-        })]),
+        FakeResponse(
+            content=[
+                ToolUseBlock(
+                    "calculate_price",
+                    {
+                        "zone_id": "bath_russian",
+                        "date": "2026-07-18",
+                        "start_time": "18:00",
+                        "hours": 3,
+                        "guests": 4,
+                    },
+                )
+            ]
+        ),
         FakeResponse(content=[TextBlock("С вас 10500 ₽ за 3 часа.")]),
     ]
     loop_one, _ = loop_for(kb, first_script, executor=shared_executor)
@@ -933,6 +1065,7 @@ async def test_provider_switch_mid_dialog_keeps_concession_state(kb):
 # История
 # --------------------------------------------------------------------------
 
+
 def test_history_is_summarized_when_long():
     history = [{"role": "user", "content": f"сообщение {i}"} for i in range(50)]
     result = summarize_history(history, keep=30)
@@ -948,6 +1081,7 @@ def test_short_history_is_untouched():
 # --------------------------------------------------------------------------
 # Debounce
 # --------------------------------------------------------------------------
+
 
 async def test_debounce_merges_burst_into_one_reply():
     """Клиент пишет очередью — агент отвечает один раз и на всё сразу."""
@@ -1000,6 +1134,7 @@ async def test_flush_now_returns_pending_text():
 # Разрешение зоны по объявлению (промт №11, часть 3)
 # --------------------------------------------------------------------------
 
+
 class _FakeItemLookup:
     def __init__(self, rows):
         self.rows = rows
@@ -1015,12 +1150,14 @@ async def test_run_turn_injects_resolved_zone_hint(kb):
     agent, client = loop_for(kb, script)
     lookup = _FakeItemLookup({"item-1": ItemZoneRow(zone_id="tent")})
 
-    await agent.run_turn("d1", [], "Здравствуйте, сколько стоит?", item_id="item-1", item_lookup=lookup)
+    await agent.run_turn(
+        "d1", [], "Здравствуйте, сколько стоит?", item_id="item-1", item_lookup=lookup
+    )
 
     main_call = next(c for c in client.messages.calls if c["model"] == "claude-sonnet-5")
     sent_text = main_call["messages"][-1]["content"]
     assert "Шатёр" in sent_text
-    assert "Здравствуйте, сколько стоит?" in sent_text   # исходный текст клиента сохранён
+    assert "Здравствуйте, сколько стоит?" in sent_text  # исходный текст клиента сохранён
 
 
 async def test_run_turn_injects_ambiguous_zone_hint(kb):
@@ -1078,6 +1215,7 @@ def test_system_prompt_describes_one_question_disambiguation(kb):
 # --------------------------------------------------------------------------
 # Фотографии зон
 # --------------------------------------------------------------------------
+
 
 async def test_photo_provider_returns_the_ids_from_the_knowledge_base(kb):
     """Провайдер читает `catalog.yaml → zone.photos` — те самые image_id,
@@ -1162,8 +1300,9 @@ async def test_asking_again_gives_the_next_photos_not_the_same(kb):
     async def already_sent():
         return {"img-1", "img-2", "img-3"}
 
-    ex = ToolExecutor(kb, "d1", photo_provider=KbPhotoProvider(lambda: loaded),
-                      sent_photos=already_sent)
+    ex = ToolExecutor(
+        kb, "d1", photo_provider=KbPhotoProvider(lambda: loaded), sent_photos=already_sent
+    )
     result = await ex.run("get_photos", {"zone_id": "yurt"})
 
     assert ex.photos_to_send == ["img-4", "img-5"]
@@ -1178,8 +1317,9 @@ async def test_when_everything_was_shown_nothing_is_promised(kb):
     async def already_sent():
         return {"img-1"}
 
-    ex = ToolExecutor(kb, "d1", photo_provider=KbPhotoProvider(lambda: loaded),
-                      sent_photos=already_sent)
+    ex = ToolExecutor(
+        kb, "d1", photo_provider=KbPhotoProvider(lambda: loaded), sent_photos=already_sent
+    )
     result = await ex.run("get_photos", {"zone_id": "yurt"})
 
     assert ex.photos_to_send == []
@@ -1195,18 +1335,26 @@ async def test_photos_ride_on_the_turn_result_only_on_the_normal_path(kb):
     loaded = _kb_with_yurt_photos(kb, ["img-1", "img-2"])
     ex = ToolExecutor(kb, "d1", photo_provider=KbPhotoProvider(lambda: loaded))
 
-    normal, _ = loop_for(kb, [
-        FakeResponse(content=[ToolUseBlock(name="get_photos", input={"zone_id": "yurt"})]),
-        FakeResponse(content=[TextBlock("Отправляю фото юрты.")]),
-    ], executor=ex)
+    normal, _ = loop_for(
+        kb,
+        [
+            FakeResponse(content=[ToolUseBlock(name="get_photos", input={"zone_id": "yurt"})]),
+            FakeResponse(content=[TextBlock("Отправляю фото юрты.")]),
+        ],
+        executor=ex,
+    )
     result = await normal.run_turn("chat-1", [], "покажите юрту")
     assert result.photos == ["img-1", "img-2"]
 
     ex2 = ToolExecutor(kb, "d2", photo_provider=KbPhotoProvider(lambda: loaded))
-    guarded, _ = loop_for(kb, [
-        FakeResponse(content=[ToolUseBlock(name="get_photos", input={"zone_id": "yurt"})]),
-        FakeResponse(content=[TextBlock("Вот фото, юрта стоит 99 999 ₽.")]),
-    ], executor=ex2)
+    guarded, _ = loop_for(
+        kb,
+        [
+            FakeResponse(content=[ToolUseBlock(name="get_photos", input={"zone_id": "yurt"})]),
+            FakeResponse(content=[TextBlock("Вот фото, юрта стоит 99 999 ₽.")]),
+        ],
+        executor=ex2,
+    )
     blocked = await guarded.run_turn("chat-2", [], "покажите юрту")
     assert blocked.llm_meta.get("guard_rail")
     assert blocked.photos == []
@@ -1222,9 +1370,9 @@ async def test_an_empty_photo_list_answers_exactly_like_no_provider_at_all(kb):
     # Домик для отдыха — зона, у которой фото действительно нет: в выгрузке
     # заказчика её папки не было (импорт 2026-09-18).
     without = await ToolExecutor(kb, "d1").run("get_photos", {"zone_id": "house_relax"})
-    with_empty = await ToolExecutor(
-        kb, "d1", photo_provider=KbPhotoProvider(lambda: kb)
-    ).run("get_photos", {"zone_id": "house_relax"})
+    with_empty = await ToolExecutor(kb, "d1", photo_provider=KbPhotoProvider(lambda: kb)).run(
+        "get_photos", {"zone_id": "house_relax"}
+    )
 
     assert with_empty == without
     assert "Не обещай прислать их" in with_empty["instruction"]
@@ -1255,8 +1403,9 @@ def test_the_shipped_catalog_has_photos_for_every_zone_but_the_relax_house():
     from app.kb.loader import load_catalog
 
     zones = {z.id: z.photos for z in load_catalog().catalog.zones}
-    assert all(zones[z] for z in zones if z != "house_relax"), \
-        [z for z in zones if z != "house_relax" and not zones[z]]
+    assert all(zones[z] for z in zones if z != "house_relax"), [
+        z for z in zones if z != "house_relax" and not zones[z]
+    ]
     assert zones["house_relax"] == []
 
 
@@ -1264,11 +1413,13 @@ def test_the_shipped_catalog_has_photos_for_every_zone_but_the_relax_house():
 # Бронирование (AUTO_BOOKING_ENABLED)
 # --------------------------------------------------------------------------
 
+
 class _BookingProvider:
     """Отдаёт заданную занятость и записывает поставленные брони."""
 
     def __init__(self, statuses=None, succeed=True):
         from app.booking.base import AvailabilityStatus
+
         # Список — чтобы вернуть РАЗНЫЕ ответы на первый и второй вызов:
         # именно так проверяется, что перед бронью занятость спрашивают
         # заново, а не берут из кеша хода.
@@ -1279,13 +1430,16 @@ class _BookingProvider:
 
     async def check_availability(self, zone_id, date, start_time=None, hours=None):
         from app.booking.base import Availability
-        self.availability_calls.append({"zone_id": zone_id, "date": date,
-                                        "start_time": start_time, "hours": hours})
+
+        self.availability_calls.append(
+            {"zone_id": zone_id, "date": date, "start_time": start_time, "hours": hours}
+        )
         status = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
         return Availability(status=status, free_slots=("18:00",))
 
     async def create_booking(self, request):
         from app.booking.base import BookingResult
+
         self.bookings.append(request)
         if not self.succeed:
             return BookingResult(False, error="YCLIENTS 500")
@@ -1301,8 +1455,12 @@ class _BookingSink:
 
 
 BOOKING_ARGS = {
-    "zone_id": "bath_russian", "date": "2026-08-29", "start_time": "14:00",
-    "guests": 6, "client_name": "Иван", "client_phone": "+79990000000",
+    "zone_id": "bath_russian",
+    "date": "2026-08-29",
+    "start_time": "14:00",
+    "guests": 6,
+    "client_name": "Иван",
+    "client_phone": "+79990000000",
 }
 
 
@@ -1334,10 +1492,17 @@ def booking_ready(monkeypatch):
 
 async def _executor_with_quote(kb, provider, hours=3, **kw):
     """Котировка обязательна до брони — из неё берутся часы занятости."""
-    ex = ToolExecutor(kb, "d1", booking_provider=provider,
-                      today_fn=lambda: date(2026, 8, 27), **kw)
-    await ex.run("calculate_price", {"zone_id": "bath_russian", "date": "2026-08-29",
-                                     "start_time": "14:00", "hours": hours, "guests": 6})
+    ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: date(2026, 8, 27), **kw)
+    await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-08-29",
+            "start_time": "14:00",
+            "hours": hours,
+            "guests": 6,
+        },
+    )
     return ex
 
 
@@ -1345,32 +1510,40 @@ async def test_booking_is_created_and_rechecked_first(kb_agent_books, monkeypatc
     """Перед постановкой занятость спрашивается ЗАНОВО: между «свободно»
     пять реплик назад и этой секундой слот мог уйти."""
     from app.config import Settings
+
     monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider()
     ex = await _executor_with_quote(kb_agent_books, provider)
-    await ex.run("check_availability", {"zone_id": "bath_russian", "date": "2026-08-29",
-                                        "start_time": "14:00", "hours": 3})
+    await ex.run(
+        "check_availability",
+        {"zone_id": "bath_russian", "date": "2026-08-29", "start_time": "14:00", "hours": 3},
+    )
     calls_before = len(provider.availability_calls)
 
     result = await ex.run("create_booking", BOOKING_ARGS)
 
     assert result["booked"] is True
     assert result["record_id"] == "rec-1"
-    assert len(provider.availability_calls) == calls_before + 1   # именно повторный запрос
+    assert len(provider.availability_calls) == calls_before + 1  # именно повторный запрос
     assert len(provider.bookings) == 1
 
 
-async def test_booking_is_refused_when_the_slot_was_taken_meanwhile(kb_agent_books, monkeypatch, booking_ready):
+async def test_booking_is_refused_when_the_slot_was_taken_meanwhile(
+    kb_agent_books, monkeypatch, booking_ready
+):
     """Первый ответ FREE, второй BUSY — ровно гонка, ради которой
     перепроверка и существует. Бронь ставиться не должна."""
     from app.booking.base import AvailabilityStatus
     from app.config import Settings
+
     monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider(statuses=[AvailabilityStatus.FREE, AvailabilityStatus.BUSY])
     ex = await _executor_with_quote(kb_agent_books, provider)
     # Агент сказал клиенту «свободно» — это первый ответ провайдера.
-    first = await ex.run("check_availability", {"zone_id": "bath_russian", "date": "2026-08-29",
-                                                "start_time": "14:00", "hours": 3})
+    first = await ex.run(
+        "check_availability",
+        {"zone_id": "bath_russian", "date": "2026-08-29", "start_time": "14:00", "hours": 3},
+    )
     assert first["status"] == "free"
 
     # ...пока договаривались, слот ушёл. Перепроверка обязана это увидеть.
@@ -1382,10 +1555,13 @@ async def test_booking_is_refused_when_the_slot_was_taken_meanwhile(kb_agent_boo
     assert "Не эскалируй" in result["instruction"]
 
 
-async def test_booking_blocks_occupied_hours_not_paid_ones(kb_agent_books, monkeypatch, booking_ready):
+async def test_booking_blocks_occupied_hours_not_paid_ones(
+    kb_agent_books, monkeypatch, booking_ready
+):
     """Акция «6-й час в подарок»: гость занимает 6 часов, платит за 5.
     Заблокировать 5 значит отдать шестой час другому клиенту."""
     from app.config import Settings
+
     monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider()
     ex = await _executor_with_quote(kb_agent_books, provider, hours=6)
@@ -1398,8 +1574,11 @@ async def test_booking_blocks_occupied_hours_not_paid_ones(kb_agent_books, monke
     assert result["occupied_hours"] == 6
 
 
-async def test_booking_is_written_to_our_db_with_both_hour_counts(kb_agent_books, monkeypatch, booking_ready):
+async def test_booking_is_written_to_our_db_with_both_hour_counts(
+    kb_agent_books, monkeypatch, booking_ready
+):
     from app.config import Settings
+
     monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider()
     sink = _BookingSink()
@@ -1417,6 +1596,7 @@ async def test_booking_is_written_to_our_db_with_both_hour_counts(kb_agent_books
 
 async def test_booking_notifies_the_operator(kb_agent_books, monkeypatch, booking_ready):
     from app.config import Settings
+
     monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider()
     notices = []
@@ -1432,10 +1612,13 @@ async def test_booking_notifies_the_operator(kb_agent_books, monkeypatch, bookin
     assert notices[0]["zone_id"] == "bath_russian"
 
 
-async def test_a_failed_db_write_does_not_lose_an_existing_booking(kb_agent_books, monkeypatch, booking_ready):
+async def test_a_failed_db_write_does_not_lose_an_existing_booking(
+    kb_agent_books, monkeypatch, booking_ready
+):
     """Бронь уже в YCLIENTS. Уронить ход из-за нашей таблицы — оставить
     клиента без подтверждения при существующей броне."""
     from app.config import Settings
+
     monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
 
     class _BrokenSink:
@@ -1453,9 +1636,12 @@ async def test_a_failed_db_write_does_not_lose_an_existing_booking(kb_agent_book
 async def test_booking_requires_a_price_quote_first(kb_agent_books, monkeypatch, booking_ready):
     """Без котировки неизвестны часы занятости — гадать их нельзя."""
     from app.config import Settings
+
     monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider()
-    ex = ToolExecutor(kb_agent_books, "d1", booking_provider=provider, today_fn=lambda: date(2026, 8, 27))
+    ex = ToolExecutor(
+        kb_agent_books, "d1", booking_provider=provider, today_fn=lambda: date(2026, 8, 27)
+    )
 
     result = await ex.run("create_booking", BOOKING_ARGS)
 
@@ -1464,8 +1650,10 @@ async def test_booking_requires_a_price_quote_first(kb_agent_books, monkeypatch,
     assert "calculate_price" in result["instruction"]
 
 
-async def test_booking_is_refused_when_the_switch_is_off(kb_agent_books, monkeypatch, booking_ready):
-    from app.config import Settings, get_settings
+async def test_booking_is_refused_when_the_switch_is_off(
+    kb_agent_books, monkeypatch, booking_ready
+):
+    from app.config import Settings
 
     provider = _BookingProvider()
     ex = await _executor_with_quote(kb_agent_books, provider)
@@ -1480,16 +1668,17 @@ async def test_booking_is_refused_when_the_switch_is_off(kb_agent_books, monkeyp
     assert provider.bookings == []
 
 
-async def test_booking_is_refused_when_availability_is_unknown(kb_agent_books, monkeypatch, booking_ready):
+async def test_booking_is_refused_when_availability_is_unknown(
+    kb_agent_books, monkeypatch, booking_ready
+):
     """Дыра, найденная мутацией: правило «занятость не подтвердилась — не
     бронируем» не было закреплено ни одним тестом. Провайдер отвечает
     UNKNOWN (нет маппинга зоны, сбой сети, неразобранный ответ) — записи в
     YCLIENTS быть не должно, а клиенту уходит «уточню у менеджера»."""
     from app.booking.base import AvailabilityStatus
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider(statuses=[AvailabilityStatus.UNKNOWN])
     ex = await _executor_with_quote(kb_agent_books, provider)
 
@@ -1501,25 +1690,33 @@ async def test_booking_is_refused_when_availability_is_unknown(kb_agent_books, m
     assert "escalate_to_human" in result["instruction"]
 
 
-async def test_booking_without_a_provider_refuses_before_touching_anything(kb_agent_books, monkeypatch, booking_ready):
+async def test_booking_without_a_provider_refuses_before_touching_anything(
+    kb_agent_books, monkeypatch, booking_ready
+):
     """Вторая дыра: ветка «системы бронирования нет вообще». Без неё
     инструмент дошёл бы до `None.create_booking` и отдал бы модели голую
     ошибку вместо готовой формулировки для клиента."""
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     sink = _BookingSink()
-    ex = ToolExecutor(kb_agent_books, "d1", today_fn=lambda: date(2026, 8, 27),
-                      booking_sink=sink)
-    await ex.run("calculate_price", {"zone_id": "bath_russian", "date": "2026-08-29",
-                                     "start_time": "14:00", "hours": 3, "guests": 6})
+    ex = ToolExecutor(kb_agent_books, "d1", today_fn=lambda: date(2026, 8, 27), booking_sink=sink)
+    await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-08-29",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
+    )
 
     result = await ex.run("create_booking", BOOKING_ARGS)
 
     assert result["booked"] is False
-    assert "error" not in result              # это отказ, а не сбой инструмента
-    assert sink.saved == []                   # «брони нет» не пишется в нашу таблицу
+    assert "error" not in result  # это отказ, а не сбой инструмента
+    assert sink.saved == []  # «брони нет» не пишется в нашу таблицу
     # Проверяется ИМЕННО эта ветка, а не «хоть какой-нибудь отказ»: без
     # гейта ход дошёл бы до проверки занятости, получил бы от отсутствующего
     # провайдера None и вернул бы «занятость не подтверждается» — тоже отказ,
@@ -1528,10 +1725,13 @@ async def test_booking_without_a_provider_refuses_before_touching_anything(kb_ag
     assert "escalate_to_human" in result["instruction"]
 
 
-async def test_booking_failure_is_never_reported_as_success(kb_agent_books, monkeypatch, booking_ready):
+async def test_booking_failure_is_never_reported_as_success(
+    kb_agent_books, monkeypatch, booking_ready
+):
     """Рубильник включён намеренно: иначе тест зеленеет на отказе
     «автобронирование выключено» и до сбоя провайдера не доходит вовсе."""
     from app.config import Settings
+
     monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider(succeed=False)
     ex = await _executor_with_quote(kb_agent_books, provider)
@@ -1546,6 +1746,7 @@ def test_auto_booking_is_off_by_default():
     """Выключено с 2026-08-28: create_booking ставит реальную запись в
     YCLIENTS без проверки оплаты — см. app/config.py:auto_booking_enabled."""
     from app.config import Settings
+
     assert Settings().auto_booking_enabled is False
 
 
@@ -1559,6 +1760,7 @@ def test_auto_booking_is_off_by_default():
 # один сценарий диалога и ни одно состояние рубильника не должны довести до
 # YCLIENTS, пока флаг включён.
 # --------------------------------------------------------------------------
+
 
 async def test_payment_handoff_is_on_in_the_shipped_knowledge_base(kb):
     """Боевая настройка, а не только возможность. Если кто-то переключит
@@ -1576,6 +1778,7 @@ async def test_yclients_is_never_called_while_the_payment_step_is_handed_off(
     Уберите проверку handoff из _tool_create_booking — падает именно он.
     """
     from app.config import Settings
+
     monkeypatch.setattr(
         "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=auto_booking)
     )
@@ -1584,7 +1787,7 @@ async def test_yclients_is_never_called_while_the_payment_step_is_handed_off(
 
     result = await ex.run("create_booking", BOOKING_ARGS)
 
-    assert provider.bookings == []                       # до YCLIENTS не дошло
+    assert provider.bookings == []  # до YCLIENTS не дошло
     assert result["booked"] is False
     assert result["status"] == "handed_off_to_operator"
 
@@ -1594,9 +1797,8 @@ async def test_no_dialogue_at_all_produces_a_booking_while_the_flag_is_on(kb, mo
     разными аргументами и после реплики клиента «оплату я уже перевёл» —
     провайдер не увидел ни одной брони."""
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider()
     ex = await _executor_with_quote(kb, provider)
 
@@ -1618,9 +1820,8 @@ async def test_handoff_raises_an_escalation(kb, monkeypatch):
     попадёт человеку и клиент останется ждать оплату в пустоту."""
     from app.agent.tools import PAYMENT_HANDOFF_REASON
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     ex = await _executor_with_quote(kb, _BookingProvider())
 
     await ex.run("create_booking", BOOKING_ARGS)
@@ -1634,9 +1835,8 @@ async def test_handoff_escalation_reaches_the_turn_result(kb, monkeypatch):
     которому конвейер помечает чат и шлёт карточку диалога оператору."""
     from app.agent.tools import PAYMENT_HANDOFF_REASON
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _BookingProvider()
     ex = await _executor_with_quote(kb, provider)
     script = [
@@ -1657,9 +1857,8 @@ async def test_handoff_card_carries_everything_needed_to_book_by_hand(kb, monkey
     переписку: зона, дата, время, часы, гости, имя, телефон, сумма и
     предоплата приходят одной карточкой."""
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     cards = []
 
     async def notifier(card):
@@ -1674,7 +1873,7 @@ async def test_handoff_card_carries_everything_needed_to_book_by_hand(kb, monkey
     assert len(cards) == 1
     card = cards[0]
     assert card["zone_id"] == "bath_russian"
-    assert card["zone_name"]                                  # человеческое название
+    assert card["zone_name"]  # человеческое название
     assert card["booking_date"] == date(2026, 8, 29)
     assert card["start_time"] == "14:00"
     assert card["occupied_hours"] == 3
@@ -1693,9 +1892,8 @@ async def test_handoff_card_shows_the_free_hours_of_a_promo_separately(kb, monke
     """Акция «6-й час в подарок»: оператор должен занять 6 часов, а не 5 —
     иначе шестой уедет другому клиенту при ручной постановке."""
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     cards = []
 
     async def notifier(card):
@@ -1716,18 +1914,26 @@ async def test_handoff_marks_an_unconfirmed_slot_for_the_operator(kb, monkeypatc
     отменяется (бронь всё равно ставит человек), но молчание провайдера не
     должно выглядеть в карточке как «свободно»."""
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     cards = []
 
     async def notifier(card):
         cards.append(card)
 
-    ex = ToolExecutor(kb, "d1", today_fn=lambda: date(2026, 8, 27),
-                      booking_handoff_notifier=notifier)
-    await ex.run("calculate_price", {"zone_id": "bath_russian", "date": "2026-08-29",
-                                     "start_time": "14:00", "hours": 3, "guests": 6})
+    ex = ToolExecutor(
+        kb, "d1", today_fn=lambda: date(2026, 8, 27), booking_handoff_notifier=notifier
+    )
+    await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-08-29",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
+    )
 
     result = await ex.run("create_booking", BOOKING_ARGS)
 
@@ -1740,9 +1946,8 @@ async def test_a_slot_taken_meanwhile_is_not_handed_off_but_answered(kb, monkeyp
     альтернативу сразу. Карточка оператору при этом не уходит."""
     from app.booking.base import AvailabilityStatus
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     cards = []
 
     async def notifier(card):
@@ -1763,9 +1968,8 @@ async def test_a_broken_telegram_does_not_swallow_the_handoff(kb, monkeypatch):
     """Карточка не доехала — передача всё равно состоялась: чат
     эскалирован, брони нет, ход не упал."""
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
 
     async def broken(card):
         raise RuntimeError("telegram недоступен")
@@ -1785,23 +1989,35 @@ async def test_handoff_still_requires_a_quote_and_a_future_date(kb, monkeypatch)
     карточку (нет ни часов, ни суммы), а прошедшая дата — вопрос клиенту, а
     не работа оператору."""
     from app.config import Settings
-    monkeypatch.setattr(
-        "app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True)
-    )
+
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     cards = []
 
     async def notifier(card):
         cards.append(card)
 
-    ex = ToolExecutor(kb, "d1", booking_provider=_BookingProvider(),
-                      today_fn=lambda: date(2026, 8, 27), booking_handoff_notifier=notifier)
+    ex = ToolExecutor(
+        kb,
+        "d1",
+        booking_provider=_BookingProvider(),
+        today_fn=lambda: date(2026, 8, 27),
+        booking_handoff_notifier=notifier,
+    )
 
     without_quote = await ex.run("create_booking", BOOKING_ARGS)
     assert without_quote["booked"] is False
     assert "calculate_price" in without_quote["instruction"]
 
-    await ex.run("calculate_price", {"zone_id": "bath_russian", "date": "2026-08-29",
-                                     "start_time": "14:00", "hours": 3, "guests": 6})
+    await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-08-29",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
+    )
     past = await ex.run("create_booking", {**BOOKING_ARGS, "date": "2020-01-01"})
     assert past["booked"] is False
     assert "Не эскалируй" in past["instruction"]
@@ -1925,6 +2141,7 @@ async def test_availability_words_are_blocked_without_a_tool_even_when_the_date_
 # Полный прогон 2026-09-02 показал, зачем нужен второй вопрос: агент вызвал
 # calculate_price с выдуманными zone_id и датой, а клиент спрашивал о другом.
 
+
 def test_amounts_are_collected_from_anywhere_in_the_tool_answer():
     """Суммы лежат и полями, и внутри строк, и в списках позиций.
 
@@ -1973,9 +2190,15 @@ def test_money_is_written_in_more_ways_than_one():
     в переписке обычнее, чем с точкой.
     """
     allowed = {"14000", "3500"}
-    for text in ("Выйдет 9999р", "Выйдет 9999 р", "Итого 9999,50 ₽",
-                 "Около 9 тыс. рублей", "Ровно 9 т.р.",
-                 "Стоимость 1500р час", "можно взять в аренду - 500 р"):
+    for text in (
+        "Выйдет 9999р",
+        "Выйдет 9999 р",
+        "Итого 9999,50 ₽",
+        "Около 9 тыс. рублей",
+        "Ровно 9 т.р.",
+        "Стоимость 1500р час",
+        "можно взять в аренду - 500 р",
+    ):
         assert invented_amounts(text, allowed), f"сумма не замечена: {text}"
 
 
@@ -1998,8 +2221,15 @@ def test_thousands_shorthand_is_the_same_number():
 def test_hours_guests_and_addresses_are_not_money():
     """Обратная сторона: без денежной единицы рядом это не сумма.
     Иначе рубеж глушил бы каждый ответ с числом гостей или временем."""
-    for text in ("на 4 часа", "6 гостей", "с 18:00 до 23:00", "2-3 человека",
-                 "дом 1 строение 2", "Адрес: Ленина 12к", "бронь на 5-6 сентября"):
+    for text in (
+        "на 4 часа",
+        "6 гостей",
+        "с 18:00 до 23:00",
+        "2-3 человека",
+        "дом 1 строение 2",
+        "Адрес: Ленина 12к",
+        "бронь на 5-6 сентября",
+    ):
         assert invented_amounts(text, set()) == [], text
 
 
@@ -2021,10 +2251,14 @@ async def test_an_invented_total_never_reaches_the_client(kb):
     значит «цена без вызова» его устраивает.
     """
     script = [
-        FakeResponse(content=[ToolUseBlock(
-            name="calculate_price",
-            input={"zone_id": "bath_russian", "date": "2026-09-05", "hours": 4},
-        )]),
+        FakeResponse(
+            content=[
+                ToolUseBlock(
+                    name="calculate_price",
+                    input={"zone_id": "bath_russian", "date": "2026-09-05", "hours": 4},
+                )
+            ]
+        ),
         FakeResponse(content=[TextBlock("Выйдет 9 000 ₽ за четыре часа.")]),
     ]
     agent = loop_at(kb, script)
@@ -2039,9 +2273,14 @@ async def test_an_invented_total_never_reaches_the_client(kb):
 async def test_a_price_straight_from_the_tool_passes(kb):
     """Обратная сторона — иначе рубеж «чинится» глушением всех цен подряд."""
     script = [
-        FakeResponse(content=[ToolUseBlock(
-            name="get_extras", input={},
-        )]),
+        FakeResponse(
+            content=[
+                ToolUseBlock(
+                    name="get_extras",
+                    input={},
+                )
+            ]
+        ),
         FakeResponse(content=[TextBlock("Шампуры есть — набор за 500 ₽.")]),
     ]
     agent = loop_at(kb, script)
@@ -2067,11 +2306,12 @@ async def test_the_amounts_are_exposed_on_the_path_where_the_text_reaches_the_cl
     result = await agent.run_turn("chat-1", [], "шампура есть?")
 
     assert result.text.startswith("Шампуры есть — набор за 500 ₽.")
-    assert result.llm_meta.get("next_step_added") is True   # closing.py
+    assert result.llm_meta.get("next_step_added") is True  # closing.py
     assert "500" in result.tool_amounts, result.tool_amounts
 
 
 # --- самораскрытие ---------------------------------------------------------
+
 
 def test_the_agent_never_explains_how_it_works():
     """Дословный ответ из прода 2026-09-07.
@@ -2082,25 +2322,28 @@ def test_the_agent_never_explains_how_it_works():
     пересказала объяснение клиенту. Объяснение убрано, но рубеж нужен всё
     равно: сочинить такую фразу модель может и без подсказки.
     """
-    leaked = ("Про собак уже передала вопрос менеджеру — он ответит лично, "
-              "я первой не пишу.")
+    leaked = "Про собак уже передала вопрос менеджеру — он ответит лично, я первой не пишу."
     assert SELF_DISCLOSURE.search(leaked)
 
-    for text in ("Я бот, поэтому не могу назвать цену",
-                 "мне не разрешено давать скидку",
-                 "передам в систему и вернусь",
-                 "система не позволяет забронировать",
-                 "по инструкции я не могу это сказать"):
+    for text in (
+        "Я бот, поэтому не могу назвать цену",
+        "мне не разрешено давать скидку",
+        "передам в систему и вернусь",
+        "система не позволяет забронировать",
+        "по инструкции я не могу это сказать",
+    ):
         assert SELF_DISCLOSURE.search(text), text
 
 
 def test_ordinary_replies_are_not_self_disclosure():
     """Обратная сторона: рубеж не должен глушить обычную речь администратора.
     «Я подскажу», «я передала» — это работа, а не устройство агента."""
-    for text in ("Передала вопрос менеджеру — напишите, если нужно что-то ещё.",
-                 "Я подскажу по ценам и свободным датам",
-                 "Баня «Русский стиль» свободна, записать?",
-                 "Я не нашла свободных дат на эту неделю"):
+    for text in (
+        "Передала вопрос менеджеру — напишите, если нужно что-то ещё.",
+        "Я подскажу по ценам и свободным датам",
+        "Баня «Русский стиль» свободна, записать?",
+        "Я не нашла свободных дат на эту неделю",
+    ):
         assert not SELF_DISCLOSURE.search(text), text
 
 
@@ -2118,23 +2361,32 @@ async def test_self_disclosure_never_reaches_the_client(kb):
 def test_a_manager_answering_is_a_promise_too():
     """«Он ответит лично» — то же обещание другими словами. Прежний набор
     ловил «свяжется», но не «ответит», и живой ответ прошёл мимо."""
-    for text in ("он ответит лично", "менеджер ответит вам", "они ответят позже",
-                 # Этот случай ловит ТОЛЬКО ветка про менеджера: «по документам»
-                 # не входит в набор «вам / лично / позже». Без него мутация
-                 # «убрать ветку» оставалась зелёной.
-                 "менеджер ответит по документам"):
+    for text in (
+        "он ответит лично",
+        "менеджер ответит вам",
+        "они ответят позже",
+        # Этот случай ловит ТОЛЬКО ветка про менеджера: «по документам»
+        # не входит в набор «вам / лично / позже». Без него мутация
+        # «убрать ветку» оставалась зелёной.
+        "менеджер ответит по документам",
+    ):
         assert PROMISE_TO_RETURN.search(text), text
 
 
 # --- темы, которые решает заказчик лично -----------------------------------
 
+
 def test_escalation_topics_are_recognised_from_the_knowledge_base(kb):
     """Слова берутся из самой базы знаний (поле `match`), а не из кода."""
     # Не одна форма на тему: словарь в базе знаний легко обеднеть незаметно,
     # и «с собакой» осталось бы работать, пока «с котом» уже нет.
-    for text in ("можно приехать с 4 собаками?", "а с котом можно?",
-                 "у нас щенок, пустите?", "приедем с кошкой",
-                 "можно с животными?"):
+    for text in (
+        "можно приехать с 4 собаками?",
+        "а с котом можно?",
+        "у нас щенок, пустите?",
+        "приедем с кошкой",
+        "можно с животными?",
+    ):
         assert escalation_topic_in(text, kb), text
     assert escalation_topic_in("нужен стол для гостей юрты", kb)
     assert escalation_topic_in("поставим свою палатку рядом", kb)
@@ -2151,10 +2403,11 @@ async def test_a_pet_question_escalates_even_when_the_model_forgets(kb):
     Теперь эскалация ставится кодом по словам из базы знаний, что бы модель
     ни решила.
     """
-    agent = loop_at(kb, [FakeResponse(content=[TextBlock(
-        "Гриль-домик вмещает до 12 человек. Подскажите дату?")])])
-    result = await agent.run_turn(
-        "chat-1", [], "сколько стоит на 12 человек и 4 собаки 3 октября?")
+    agent = loop_at(
+        kb,
+        [FakeResponse(content=[TextBlock("Гриль-домик вмещает до 12 человек. Подскажите дату?")])],
+    )
+    result = await agent.run_turn("chat-1", [], "сколько стоит на 12 человек и 4 собаки 3 октября?")
 
     assert result.escalated is True
     assert "животн" in (result.escalation_reason or "")
@@ -2172,6 +2425,7 @@ async def test_an_ordinary_question_does_not_escalate(kb):
 
 
 # --- утверждение против обещания ------------------------------------------
+
 
 def test_a_promise_to_check_is_not_a_claim_about_the_calendar():
     """Прод 2026-09-02: рубеж срезал честное «уточню свободное время на
@@ -2199,8 +2453,12 @@ def test_the_short_masculine_form_is_a_claim_too():
     мужского рода четыре из десяти, и краткая форма для них — самая
     естественная. Это дыра в самой защите, ради которой всё делалось.
     """
-    for text in ("Купол свободен", "Домик свободен завтра",
-                 "Гриль-домик свободен на 5 сентября", "Шатёр свободен весь день"):
+    for text in (
+        "Купол свободен",
+        "Домик свободен завтра",
+        "Гриль-домик свободен на 5 сентября",
+        "Шатёр свободен весь день",
+    ):
         assert availability_claim(text) is True, text
 
 
@@ -2230,16 +2488,18 @@ def test_busy_is_said_in_more_ways_than_one_word():
     Все четыре формы — из разбора живых формулировок 2026-09-03, и все
     проходили мимо словаря, то есть уходили клиенту без вызова календаря.
     """
-    for text in ("Всё расписано на выходные",
-                 "Всё забито до конца месяца",
-                 "Юрта забита в субботу",
-                 "Нет мест на 6 сентября",
-                 "Мест нет ни в одной бане",
-                 "На это число уже забронировано",
-                 "Купол освободится в 20:00",
-                 "Домик освобождается в 19:00",
-                 "Завтра незанято",
-                 "Баня несвободна"):
+    for text in (
+        "Всё расписано на выходные",
+        "Всё забито до конца месяца",
+        "Юрта забита в субботу",
+        "Нет мест на 6 сентября",
+        "Мест нет ни в одной бане",
+        "На это число уже забронировано",
+        "Купол освободится в 20:00",
+        "Домик освобождается в 19:00",
+        "Завтра незанято",
+        "Баня несвободна",
+    ):
         assert availability_claim(text) is True, text
 
 
@@ -2247,11 +2507,13 @@ def test_the_busy_dictionary_does_not_swallow_ordinary_words():
     """Формы взяты КОРОТКИЕ намеренно: по основе `расписан\\w*` поймал бы
     «расписание работы», `забит\\w*` — «мангал забит углём». Обе фразы
     нормальные, и глушить на них ответ не за что."""
-    for text in ("какое расписание работы?",
-                 "расписание бань есть на сайте",
-                 "мангал забит углём",
-                 "у нас есть места для парковки",
-                 "разобрали мангал после гостей"):
+    for text in (
+        "какое расписание работы?",
+        "расписание бань есть на сайте",
+        "мангал забит углём",
+        "у нас есть места для парковки",
+        "разобрали мангал после гостей",
+    ):
         assert availability_claim(text) is False, text
 
 
@@ -2261,10 +2523,12 @@ def test_real_windows_are_not_a_calendar_claim():
 
     Тексты — из разбора живых формулировок 2026-09-03.
     """
-    for text in ("У нас в куполе окна во всю стену, звёзды видно прямо из кровати",
-                 "а вид из окна вечером на закат красивый?",
-                 "окна выходят на пруд",
-                 "Юрта без окон, свет только от гирлянды"):
+    for text in (
+        "У нас в куполе окна во всю стену, звёзды видно прямо из кровати",
+        "а вид из окна вечером на закат красивый?",
+        "окна выходят на пруд",
+        "Юрта без окон, свет только от гирлянды",
+    ):
         assert availability_claim(text) is False, text
 
 
@@ -2273,22 +2537,26 @@ def test_a_promise_to_come_back_is_caught():
     может. «Менеджер свяжется» заказчик 2026-09-06 запретил отдельно: клиент
     садится ждать звонка, которого может не быть, и уходит.
     """
-    for text in ("Уточню и вернусь с ответом",
-                 "Менеджер свяжется с вами",
-                 "Мы свяжемся с вами завтра",
-                 "Перезвоню вам после 18:00",
-                 "Я напишу вам, как только узнаю",
-                 "Дам знать, как освободится"):
+    for text in (
+        "Уточню и вернусь с ответом",
+        "Менеджер свяжется с вами",
+        "Мы свяжемся с вами завтра",
+        "Перезвоню вам после 18:00",
+        "Я напишу вам, как только узнаю",
+        "Дам знать, как освободится",
+    ):
         assert PROMISE_TO_RETURN.search(text), text
 
 
 def test_asking_the_client_to_write_is_not_a_promise():
     """Обратная сторона: повелительное наклонение в адрес клиента — это как
     раз то, чем такие фразы заменяются. Глушить его нельзя."""
-    for text in ("Напишите, если нужно что-то ещё",
-                 "Перезвоните нам, если удобно",
-                 "Свяжитесь с нами по телефону",
-                 "Хотите вернуться к этому вопросу позже?"):
+    for text in (
+        "Напишите, если нужно что-то ещё",
+        "Перезвоните нам, если удобно",
+        "Свяжитесь с нами по телефону",
+        "Хотите вернуться к этому вопросу позже?",
+    ):
         assert not PROMISE_TO_RETURN.search(text), text
 
 
@@ -2296,7 +2564,9 @@ def test_no_canned_reply_promises_anything():
     """Свойство ВСЕХ заготовленных текстов разом. Поштучно их легко
     поправить и один забыть — а забытый уедет клиенту."""
     for text in list(AVAILABILITY_GUARD_REPLIES) + [
-        AVAILABILITY_GUARD_HANDOFF, GUARD_RAIL_FALLBACK, HANDED_TO_MANAGER,
+        AVAILABILITY_GUARD_HANDOFF,
+        GUARD_RAIL_FALLBACK,
+        HANDED_TO_MANAGER,
     ]:
         assert not PROMISE_TO_RETURN.search(text), text
         assert availability_claim(text) is False, text
@@ -2331,10 +2601,13 @@ def test_a_condition_is_not_a_claim():
     Оговорка «если свободна» ничего о календаре не сообщает — она ровно
     противоположна утверждению «свободна».
     """
-    assert availability_claim(
-        "Баню можно взять отдельной зоной, если свободна. Давайте я проверю "
-        "занятость шатра на 5 сентября."
-    ) is False
+    assert (
+        availability_claim(
+            "Баню можно взять отдельной зоной, если свободна. Давайте я проверю "
+            "занятость шатра на 5 сентября."
+        )
+        is False
+    )
 
 
 def test_a_question_about_availability_is_not_a_claim():
@@ -2353,18 +2626,18 @@ def test_a_condition_with_a_subject_in_between_still_counts_as_a_condition():
     Рубеж глушил честный ответ про возврат предоплаты: `если` требовалось
     вплотную к слову занятости, а здесь между ними подлежащее.
     """
-    assert availability_claim(
-        "дату можно перенести, если желаемая дата свободна"
-    ) is False
+    assert availability_claim("дату можно перенести, если желаемая дата свободна") is False
     assert availability_claim("если суббота занята, предложу воскресенье") is False
 
 
 def test_free_as_in_roomy_is_not_about_the_calendar():
     """«В куполе свободно размещаются 8 гостей» — наречие образа действия при
     глаголе размещения. О занятости здесь нет ни слова."""
-    for text in ("В куполе свободно размещаются 8 гостей",
-                 "в шатре свободно поместятся 20 человек",
-                 "за столом свободно сидят 10 гостей"):
+    for text in (
+        "В куполе свободно размещаются 8 гостей",
+        "в шатре свободно поместятся 20 человек",
+        "за столом свободно сидят 10 гостей",
+    ):
         assert availability_claim(text) is False, text
     # А «свободно» про календарь по-прежнему утверждение.
     assert availability_claim("Завтра свободно") is True
@@ -2436,13 +2709,19 @@ def test_nearest_inside_a_question_is_not_a_claim():
     Спросить у клиента, какое число он имеет в виду, — не утверждение о
     занятости ни в каком виде.
     """
-    assert availability_claim(
-        "И уточните дату — 4 июля будет только в следующем году, "
-        "вы имеете в виду ближайшее число?"
-    ) is False
-    assert availability_claim(
-        "Подскажите, какого числа вас интересует — ближайшие выходные (5-6 сентября)?"
-    ) is False
+    assert (
+        availability_claim(
+            "И уточните дату — 4 июля будет только в следующем году, "
+            "вы имеете в виду ближайшее число?"
+        )
+        is False
+    )
+    assert (
+        availability_claim(
+            "Подскажите, какого числа вас интересует — ближайшие выходные (5-6 сентября)?"
+        )
+        is False
+    )
 
 
 def test_a_question_mark_does_not_excuse_the_rest_of_the_dictionary():
@@ -2473,9 +2752,10 @@ def test_the_past_tense_is_a_report_about_the_calendar_not_a_promise():
 def test_a_request_addressed_to_the_client_is_not_a_claim_either():
     """«Уточните, какое время вам удобно» — просьба К КЛИЕНТУ. Фактом о
     календаре она не является, и глушить её не за что."""
-    assert availability_claim(
-        "Уточните, пожалуйста, какое время вам удобно — посмотрю, что свободно"
-    ) is False
+    assert (
+        availability_claim("Уточните, пожалуйста, какое время вам удобно — посмотрю, что свободно")
+        is False
+    )
 
 
 def test_one_unguarded_word_is_enough_even_next_to_a_promise():
@@ -2495,6 +2775,7 @@ async def test_a_promise_to_check_reaches_the_client(kb):
 
 
 # --- нарастающий ответ -----------------------------------------------------
+
 
 def test_the_repeat_counter_ignores_client_replies_in_between():
     """Клиент отвечает на каждую подстановку — счёт от этого не сбрасывается.
@@ -2516,17 +2797,27 @@ def test_an_ordinary_reply_in_between_resets_the_streak():
     между тем давно поехал дальше — модель успела нормально ответить.
     """
     assert guard_repeats([{"role": "assistant", "content": "обычный ответ"}]) == 0
-    assert guard_repeats([
-        {"role": "assistant", "content": AVAILABILITY_GUARD_REPLIES[0]},
-        {"role": "user", "content": "а сколько стоит?"},
-        {"role": "assistant", "content": "Четыре часа в бане — 10 500 ₽."},
-    ]) == 0
+    assert (
+        guard_repeats(
+            [
+                {"role": "assistant", "content": AVAILABILITY_GUARD_REPLIES[0]},
+                {"role": "user", "content": "а сколько стоит?"},
+                {"role": "assistant", "content": "Четыре часа в бане — 10 500 ₽."},
+            ]
+        )
+        == 0
+    )
     # А сразу после подстановки — считается.
-    assert guard_repeats([
-        {"role": "assistant", "content": "Четыре часа в бане — 10 500 ₽."},
-        {"role": "user", "content": "а завтра?"},
-        {"role": "assistant", "content": AVAILABILITY_GUARD_REPLIES[0]},
-    ]) == 1
+    assert (
+        guard_repeats(
+            [
+                {"role": "assistant", "content": "Четыре часа в бане — 10 500 ₽."},
+                {"role": "user", "content": "а завтра?"},
+                {"role": "assistant", "content": AVAILABILITY_GUARD_REPLIES[0]},
+            ]
+        )
+        == 1
+    )
 
 
 async def test_the_second_firing_is_worded_differently(kb):
@@ -2580,24 +2871,42 @@ def test_no_two_substitutions_in_a_row_are_identical():
     said = [guard_substitution(n)[0] for n in range(8)]
     spoken = [t for t in said if t]
     assert len(spoken) == len(set(spoken)), f"есть повтор: {said}"
-    for a, b in zip(said, said[1:]):
+    for a, b in zip(said, said[1:], strict=False):
         assert not (a and a == b), f"дословный повтор подряд: {a!r}"
 
 
 def test_a_guard_without_a_ladder_does_not_repeat_itself_either():
     """Ценовой рубеж, рубеж суммы и упор в лимит витков говорят одним текстом
     на все случаи — значит, два срабатывания подряд дали бы дословный повтор."""
-    assert not_a_verbatim_repeat(GUARD_RAIL_FALLBACK, [
-        {"role": "assistant", "content": GUARD_RAIL_FALLBACK},
-    ]) == ""
-    assert not_a_verbatim_repeat(GUARD_RAIL_FALLBACK, [
-        {"role": "assistant", "content": "Баня свободна, записать?"},
-    ]) == GUARD_RAIL_FALLBACK
+    assert (
+        not_a_verbatim_repeat(
+            GUARD_RAIL_FALLBACK,
+            [
+                {"role": "assistant", "content": GUARD_RAIL_FALLBACK},
+            ],
+        )
+        == ""
+    )
+    assert (
+        not_a_verbatim_repeat(
+            GUARD_RAIL_FALLBACK,
+            [
+                {"role": "assistant", "content": "Баня свободна, записать?"},
+            ],
+        )
+        == GUARD_RAIL_FALLBACK
+    )
     # Реплика клиента между ними ничего не меняет: смотрим последний ответ АГЕНТА.
-    assert not_a_verbatim_repeat(GUARD_RAIL_FALLBACK, [
-        {"role": "assistant", "content": GUARD_RAIL_FALLBACK},
-        {"role": "user", "content": "ну так что?"},
-    ]) == ""
+    assert (
+        not_a_verbatim_repeat(
+            GUARD_RAIL_FALLBACK,
+            [
+                {"role": "assistant", "content": GUARD_RAIL_FALLBACK},
+                {"role": "user", "content": "ну так что?"},
+            ],
+        )
+        == ""
+    )
     assert not_a_verbatim_repeat(GUARD_RAIL_FALLBACK, []) == GUARD_RAIL_FALLBACK
 
 
@@ -2647,6 +2956,7 @@ def test_the_guard_replies_do_not_trip_the_guard_itself():
 
 # --- лестница спрашивает то, чего не хватает --------------------------------
 
+
 def test_the_ladder_asks_about_the_missing_parameter():
     """Жалоба заказчика: подстановка требовала дату, которую клиент назвал
     тремя репликами раньше. Теперь спрашивается первый недостающий слот."""
@@ -2667,8 +2977,11 @@ def test_when_the_client_told_everything_the_guard_goes_straight_to_the_operator
     """Спрашивать нечего — любой вопрос был бы повтором. Карточка человеку
     сразу, дальше молчание: повторять карточку слово в слово запрещено."""
     everything = Slots(
-        date=date(2026, 9, 20), guests=6, hours=4,
-        start_time=time(13, 0), zone="гриль",
+        date=date(2026, 9, 20),
+        guests=6,
+        hours=4,
+        start_time=time(13, 0),
+        zone="гриль",
     )
 
     assert guard_substitution(0, everything) == (AVAILABILITY_GUARD_HANDOFF, True)
@@ -2681,9 +2994,7 @@ async def test_a_two_question_reply_never_reaches_the_client(kb):
     Текст нарочно безобидный для остальных рубежей: ни сумм, ни утверждений
     о календаре — проверяется именно форма ответа.
     """
-    anketa = (
-        "Рада помочь! На сколько часов планируете? И сколько вас будет?"
-    )
+    anketa = "Рада помочь! На сколько часов планируете? И сколько вас будет?"
     agent, _ = loop_for(kb, [FakeResponse(content=[TextBlock(anketa)])])
     result = await agent.run_turn("chat-1", [], "хочу баню")
 
@@ -2713,10 +3024,23 @@ async def test_what_the_client_already_said_is_handed_to_the_model(kb):
 
     Дата — через месяц от сегодня, а не зашитое «20 сентября»: зашитая
     дата после 20.09.2026 уезжала в следующий год, и тест краснел сам."""
-    from datetime import date as _date, timedelta as _td
+    from datetime import date as _date
+    from datetime import timedelta as _td
 
-    months = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля",
-              "августа", "сентября", "октября", "ноября", "декабря")
+    months = (
+        "января",
+        "февраля",
+        "марта",
+        "апреля",
+        "мая",
+        "июня",
+        "июля",
+        "августа",
+        "сентября",
+        "октября",
+        "ноября",
+        "декабря",
+    )
     target = _date.today() + _td(days=30)
     said = f"{target.day} {months[target.month - 1]}"
     history = [
@@ -2764,9 +3088,12 @@ def test_the_ladder_counter_survives_a_switch_between_branches():
 
 # --- инструменты дают право говорить ---------------------------------------
 
+
 async def test_the_answer_passes_after_a_real_availability_tool_call(kb):
     script = [
-        FakeResponse(content=[ToolUseBlock(name="check_availability", input={"date": "2026-09-02"})]),
+        FakeResponse(
+            content=[ToolUseBlock(name="check_availability", input={"date": "2026-09-02"})]
+        ),
         FakeResponse(content=[TextBlock("Завтра, 2 сентября, свободно с 14:00 — записать?")]),
     ]
     agent = loop_at(kb, script)
@@ -2821,8 +3148,10 @@ def test_a_self_correction_about_dates_is_not_a_contradiction():
     правильный ответ. Относительное слово расшифровывает соседнее число —
     всё, что дальше, уже про другое.
     """
-    text = ("Прошу прощения, я немного сбилась с датой — сегодня 2 сентября, "
-            "и 20 июня действительно уже позади.")
+    text = (
+        "Прошу прощения, я немного сбилась с датой — сегодня 2 сентября, "
+        "и 20 июня действительно уже позади."
+    )
     # Часы — 2 сентября: именно в этот день ответ и был написан.
     assert date_contradicts_now(text, datetime(2026, 9, 2, 10, 0, tzinfo=_MSK)) is None
 
@@ -2839,11 +3168,14 @@ def test_a_plain_future_date_without_a_relative_word_is_not_touched():
 
 # --- принуждение инструмента ------------------------------------------------
 
+
 async def test_the_forced_tool_is_sent_only_on_the_first_iteration(kb):
     """Принуждение на ВСЕХ витках заставило бы модель звать инструмент
     бесконечно и никогда не дойти до текста ответа."""
     script = [
-        FakeResponse(content=[ToolUseBlock(name="check_availability", input={"date": "2026-09-02"})]),
+        FakeResponse(
+            content=[ToolUseBlock(name="check_availability", input={"date": "2026-09-02"})]
+        ),
         FakeResponse(content=[TextBlock("Посмотрела, записать вас?")]),
     ]
     client = FakeAnthropic(script, "question")
@@ -2870,7 +3202,13 @@ async def test_the_clients_earlier_words_reach_the_forcing_decision(kb):
         {"role": "assistant", "content": "Здравствуйте! На какую дату планируете?"},
     ]
     script = [
-        FakeResponse(content=[ToolUseBlock(name="calculate_price", input={"zone_id": "bath_russian", "date": "2026-09-05"})]),
+        FakeResponse(
+            content=[
+                ToolUseBlock(
+                    name="calculate_price", input={"zone_id": "bath_russian", "date": "2026-09-05"}
+                )
+            ]
+        ),
         FakeResponse(content=[TextBlock("Уточните, пожалуйста, дату.")]),
     ]
     client = FakeAnthropic(script, "question")
@@ -2889,8 +3227,10 @@ async def test_the_agents_own_greeting_does_not_count_as_a_named_zone(kb):
     бы декоративным.
     """
     history = [
-        {"role": "assistant",
-         "content": "Здравствуйте! Что вас интересует: баня, купол, гриль-домик или шатёр?"},
+        {
+            "role": "assistant",
+            "content": "Здравствуйте! Что вас интересует: баня, купол, гриль-домик или шатёр?",
+        },
     ]
     client = FakeAnthropic([FakeResponse(content=[TextBlock("Подскажите зону.")])], "question")
     agent = AgentLoop(client, kb, now_fn=lambda: INCIDENT_NOW)
@@ -2935,6 +3275,7 @@ async def test_an_unknown_tool_name_from_the_provider_does_not_kill_the_turn(kb)
 # лежат строкой JSON, а не объектом. Поэтому проверяется не только чужое
 # имя, но и чужая форма.
 
+
 def test_string_arguments_are_parsed_instead_of_crashing_the_turn():
     """OpenAI-форма: `arguments` — строка JSON. Разбирается, а не теряется."""
     name, args, block_id = normalize_tool_use(
@@ -2948,7 +3289,8 @@ def test_unparsable_arguments_become_empty_and_keep_the_name():
     """Строка не разобралась — аргументов нет, но ход не падает, и имя
     инструмента остаётся: по нему исполнитель ответит осмысленно."""
     assert normalize_tool_use(ToolUseBlock(name="get_zones", input="{не json"))[:2] == (
-        "get_zones", {}
+        "get_zones",
+        {},
     )
 
 
@@ -2956,6 +3298,7 @@ def test_missing_pieces_of_the_block_do_not_raise():
     """Ни имени, ни аргументов, ни id. `dict(None)` здесь поднимал бы
     TypeError и убивал ход целиком — из-за поля, которое мы даже не
     собирались исполнять."""
+
     class Bare:
         type = "tool_use"
 
@@ -2971,6 +3314,7 @@ def test_two_id_less_blocks_do_not_collapse_into_one():
     Результат второго вызова тогда приходит как ответ на первый, а первый
     остаётся без ответа вовсе — провайдеру такая переписка невалидна.
     """
+
     class Bare:
         type = "tool_use"
 
@@ -2985,6 +3329,7 @@ def test_the_answer_sent_back_to_the_provider_is_the_normalized_one():
     на нормализованный id — если id у блока не было, ссылаться было не на
     что, и следующий запрос уходил с несуществующим tool_use_id.
     """
+
     class Bare:
         type = "tool_use"
 
@@ -3005,8 +3350,10 @@ def test_a_well_formed_block_survives_normalization_unchanged():
     block = ToolUseBlock(name="check_availability", input={"date": "2026-09-05"}, id="tu_7")
     content = sanitized_assistant_content([block], [normalize_tool_use(block, 0)])
     assert content[0] == {
-        "type": "tool_use", "id": "tu_7",
-        "name": "check_availability", "input": {"date": "2026-09-05"},
+        "type": "tool_use",
+        "id": "tu_7",
+        "name": "check_availability",
+        "input": {"date": "2026-09-05"},
     }
 
 
@@ -3021,6 +3368,7 @@ async def test_the_turn_sends_the_provider_a_consistent_pair(kb):
     переписке нет, и ход умирает на стороне провайдера — то есть ровно там,
     где «мусор не должен ронять ход» проверить труднее всего.
     """
+
     class IdLessBlock:
         type = "tool_use"
         name = "tool_calls"
@@ -3034,21 +3382,29 @@ async def test_the_turn_sends_the_provider_a_consistent_pair(kb):
     agent = AgentLoop(client, kb, now_fn=lambda: INCIDENT_NOW)
     await agent.run_turn("chat-1", [], "вопрос без принуждения")
 
-    dialog_calls = [c for c in client.messages.calls
-                    if not c.get("model", "").startswith("claude-haiku")]
+    dialog_calls = [
+        c for c in client.messages.calls if not c.get("model", "").startswith("claude-haiku")
+    ]
     sent = dialog_calls[1]["messages"]
 
     assistant = [m for m in sent if m["role"] == "assistant"][-1]
-    tool_uses = [b for b in assistant["content"]
-                 if (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "tool_use"]
+    tool_uses = [
+        b
+        for b in assistant["content"]
+        if (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "tool_use"
+    ]
     assert tool_uses, "ответ модели с вызовом инструмента обязан уехать обратно"
     assert isinstance(tool_uses[0], dict), "сырой объект блока не нормализован"
     assert tool_uses[0]["id"], "у вызова на проводе нет id"
     assert tool_uses[0]["name"], "у вызова на проводе пустое имя"
 
-    results = [b for m in sent if m["role"] == "user"
-               for b in (m["content"] if isinstance(m["content"], list) else [])
-               if isinstance(b, dict) and b.get("type") == "tool_result"]
+    results = [
+        b
+        for m in sent
+        if m["role"] == "user"
+        for b in (m["content"] if isinstance(m["content"], list) else [])
+        if isinstance(b, dict) and b.get("type") == "tool_result"
+    ]
     assert results, "результат инструмента обязан уехать обратно"
     assert results[0]["tool_use_id"] == tool_uses[0]["id"], (
         "tool_result ссылается на id, которого нет в assistant-сообщении"
@@ -3088,28 +3444,35 @@ async def test_a_real_tool_with_string_arguments_still_runs(kb):
 
 # --- «заняться» — не «занято» ---------------------------------------------
 
-@pytest.mark.parametrize("text", [
-    # Дословно из замера 2026-09-18 (scripts/probe_questions.py): честные
-    # ответы на вопрос клиента про детскую площадку, срезанные рубежом.
-    "На территории есть детская площадка, так что детям будет чем заняться! "
-    "Бань у нас три: «Русский стиль» и «Гараж» — до 10-12 человек, "
-    "«Рыцарская» — камерная, до 6. Какая ближе по духу?",
-    "Да, на территории есть детская площадка — детям будет чем заняться, "
-    "пока взрослые парятся.",
-    "Для детей много занятий на территории.",
-    # Третий прогон замера: инфинитив совершенного вида.
-    "Да, на территории есть детская площадка — будет чем занять ребят!",
-])
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Дословно из замера 2026-09-18 (scripts/probe_questions.py): честные
+        # ответы на вопрос клиента про детскую площадку, срезанные рубежом.
+        "На территории есть детская площадка, так что детям будет чем заняться! "
+        "Бань у нас три: «Русский стиль» и «Гараж» — до 10-12 человек, "
+        "«Рыцарская» — камерная, до 6. Какая ближе по духу?",
+        "Да, на территории есть детская площадка — детям будет чем заняться, "
+        "пока взрослые парятся.",
+        "Для детей много занятий на территории.",
+        # Третий прогон замера: инфинитив совершенного вида.
+        "Да, на территории есть детская площадка — будет чем занять ребят!",
+    ],
+)
 def test_occupying_yourself_is_not_a_calendar_claim(text):
     assert availability_claim(text) is False
 
 
-@pytest.mark.parametrize("text", [
-    "Гриль-домик на субботу занят.",
-    "Суббота уже занята.",
-    "Все бани заняты до 18:00.",
-    "Занятость на 20-е высокая.",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Гриль-домик на субботу занят.",
+        "Суббота уже занята.",
+        "Все бани заняты до 18:00.",
+        "Занятость на 20-е высокая.",
+    ],
+)
 def test_real_occupancy_words_are_still_caught(text):
     """Обратная сторона правки: исключены только «заняться» и «занятие»."""
     assert availability_claim(text) is True
@@ -3130,7 +3493,8 @@ async def test_a_confirmation_labelled_human_is_not_handed_to_the_operator(kb, t
     """Классификатор ошибся точно так же, как в замере, — а клиент всё равно
     получает обычный ход, не «передала вопрос менеджеру»."""
     agent, client = loop_for(
-        kb, [FakeResponse(content=[TextBlock("Отлично! На сколько часов планируете?")])],
+        kb,
+        [FakeResponse(content=[TextBlock("Отлично! На сколько часов планируете?")])],
         label="human",
     )
     result = await agent.run_turn("chat-1", [], text)
@@ -3142,10 +3506,16 @@ async def test_a_confirmation_labelled_human_is_not_handed_to_the_operator(kb, t
     assert any(c["model"] == "claude-sonnet-5" for c in client.messages.calls)
 
 
-@pytest.mark.parametrize("text", [
-    "позовите менеджера", "хочу поговорить с человеком", "буду жаловаться",
-    "вы бот? дайте живого человека", "верните предоплату",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "позовите менеджера",
+        "хочу поговорить с человеком",
+        "буду жаловаться",
+        "вы бот? дайте живого человека",
+        "верните предоплату",
+    ],
+)
 async def test_a_real_request_for_a_human_still_goes_to_the_operator(kb, text):
     agent, _ = loop_for(kb, [], label="human")
     result = await agent.run_turn("chat-1", [], text)
@@ -3154,10 +3524,17 @@ async def test_a_real_request_for_a_human_still_goes_to_the_operator(kb, text):
     assert result.text == HANDED_TO_MANAGER
 
 
-@pytest.mark.parametrize("text", [
-    "нас 6 человек", "детям старше 5 лет можно?", "есть хамам?",
-    "как разводить мангал?", "на 10 человек подойдёт?", "Ок, давайте на 4 часа",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "нас 6 человек",
+        "детям старше 5 лет можно?",
+        "есть хамам?",
+        "как разводить мангал?",
+        "на 10 человек подойдёт?",
+        "Ок, давайте на 4 часа",
+    ],
+)
 def test_ordinary_words_are_not_a_request_for_a_human(text):
     """Словарь вето обязан молчать на обычных репликах — иначе оно не вето."""
     assert asks_for_a_human(text) is False
@@ -3192,31 +3569,37 @@ def test_the_classifier_prompt_has_a_label_for_agreement():
 FRIDAY_18_SEPT = datetime(2026, 9, 18, 12, 0, tzinfo=_MSK)
 
 
-@pytest.mark.parametrize("text", [
-    "20 сентября — суббота, выходной тариф 2000 ₽/час",   # дословно из замера
-    "В субботу, 20 сентября, свободно с 13:00.",
-    "20.09 — суббота.",
-    "Завтра, в воскресенье, всё свободно.",               # завтра — суббота
-    "1 января — четверг.",                                # 2027-01-01 — пятница
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "20 сентября — суббота, выходной тариф 2000 ₽/час",  # дословно из замера
+        "В субботу, 20 сентября, свободно с 13:00.",
+        "20.09 — суббота.",
+        "Завтра, в воскресенье, всё свободно.",  # завтра — суббота
+        "1 января — четверг.",  # 2027-01-01 — пятница
+    ],
+)
 def test_a_wrong_weekday_is_caught(text):
     assert weekday_contradicts_date(text, FRIDAY_18_SEPT) is not None
 
 
-@pytest.mark.parametrize("text", [
-    "20 сентября — воскресенье, выходной тариф 2000 ₽/час.",
-    "20 сентября (воскресенье) гриль-домик свободен с 13:00.",
-    "Завтра, в субботу, свободно.",
-    "В субботу удобно?",                                  # даты нет — сверять не с чем
-    "1 января — пятница.",
-    # Перечисление правила рядом с датой — самый частый наш текст. Первая
-    # редакция сверки рубила его на слове «пятницу».
-    "Тариф выходного дня действует в пятницу, субботу и воскресенье — "
-    "20 сентября как раз воскресенье.",
-    "С пятницы по воскресенье, 18–20 сентября, действует выходной тариф.",
-    "В субботу, 19 сентября, и в воскресенье, 20 сентября, свободно.",
-    "Средняя загрузка 20 сентября небольшая.",            # «сред-» — не среда
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "20 сентября — воскресенье, выходной тариф 2000 ₽/час.",
+        "20 сентября (воскресенье) гриль-домик свободен с 13:00.",
+        "Завтра, в субботу, свободно.",
+        "В субботу удобно?",  # даты нет — сверять не с чем
+        "1 января — пятница.",
+        # Перечисление правила рядом с датой — самый частый наш текст. Первая
+        # редакция сверки рубила его на слове «пятницу».
+        "Тариф выходного дня действует в пятницу, субботу и воскресенье — "
+        "20 сентября как раз воскресенье.",
+        "С пятницы по воскресенье, 18–20 сентября, действует выходной тариф.",
+        "В субботу, 19 сентября, и в воскресенье, 20 сентября, свободно.",
+        "Средняя загрузка 20 сентября небольшая.",  # «сред-» — не среда
+    ],
+)
 def test_a_right_or_unrelated_weekday_passes(text):
     assert weekday_contradicts_date(text, FRIDAY_18_SEPT) is None
 
@@ -3226,9 +3609,12 @@ async def test_a_wrong_weekday_never_reaches_the_client(kb):
     wrong = "Добрый день! 20 сентября — суббота, всё свободно с 13:00."
     agent = loop_at(
         kb,
-        [FakeResponse(content=[ToolUseBlock(name="check_availability",
-                                            input={"date": "2026-09-20"})]),
-         FakeResponse(content=[TextBlock(wrong)])],
+        [
+            FakeResponse(
+                content=[ToolUseBlock(name="check_availability", input={"date": "2026-09-20"})]
+            ),
+            FakeResponse(content=[TextBlock(wrong)]),
+        ],
         now=FRIDAY_18_SEPT,
     )
     result = await agent.run_turn("chat-1", [], "есть время 20 сентября?")
@@ -3244,7 +3630,7 @@ def test_the_now_block_gives_weekdays_for_two_weeks():
 
     assert "20.09 — воскресенье" in block
     assert "19.09 — суббота" in block
-    assert "01.10 — четверг" in block      # последний, четырнадцатый день
+    assert "01.10 — четверг" in block  # последний, четырнадцатый день
 
 
 # --- повтор уже названной суммы: без скидки можно, после скидки — нет -------
@@ -3255,7 +3641,10 @@ def test_the_now_block_gives_weekdays_for_two_weeks():
 
 QUOTED_BEFORE = [
     {"role": "user", "content": "баня Русский стиль, 20 сентября, с 13 до 17, нас шестеро"},
-    {"role": "assistant", "content": "Свободно! Выходной тариф 3500 ₽/час, за 4 часа — 14 000 ₽. Бронируем?"},
+    {
+        "role": "assistant",
+        "content": "Свободно! Выходной тариф 3500 ₽/час, за 4 часа — 14 000 ₽. Бронируем?",
+    },
 ]
 REPEAT = "Да, «Русский стиль» 20 сентября, 14 000 ₽ за 4 часа. Оставьте имя и телефон."
 FOREIGN = "Да, «Русский стиль» 20 сентября, 12 000 ₽ за 4 часа. Оставьте имя и телефон."
@@ -3270,31 +3659,35 @@ async def test_an_amount_already_sent_may_be_repeated_without_a_new_quote(kb):
     assert result.llm_meta.get("guard_rail") is None
 
 
-@pytest.mark.parametrize("state", [
-    DialogConcessionState(base_price_quoted=True, used_tiers=frozenset({1})),
-    DialogConcessionState(base_price_quoted=True, floor_reached=Decimal("12000")),
-])
+@pytest.mark.parametrize(
+    "state",
+    [
+        DialogConcessionState(base_price_quoted=True, used_tiers=frozenset({1})),
+        DialogConcessionState(base_price_quoted=True, floor_reached=Decimal("12000")),
+    ],
+)
 async def test_after_a_concession_a_repeat_needs_a_new_quote(kb, state):
     """После скидки в истории две цены, и какая верна, знает только расчёт.
     Повтор старой — ровно то, что запрещает главное правило проекта."""
     agent, _ = loop_for(kb, [FakeResponse(content=[TextBlock(REPEAT)])])
-    result = await agent.run_turn("chat-1", list(QUOTED_BEFORE), "ну что, подойдёт?",
-                                  state=state)
+    result = await agent.run_turn("chat-1", list(QUOTED_BEFORE), "ну что, подойдёт?", state=state)
 
     assert "14 000" not in result.text
     assert result.llm_meta["guard_rail"] == GUARD_RAIL_VIOLATION
 
 
-@pytest.mark.parametrize("state", [
-    None,
-    DialogConcessionState(base_price_quoted=True, used_tiers=frozenset({1})),
-])
+@pytest.mark.parametrize(
+    "state",
+    [
+        None,
+        DialogConcessionState(base_price_quoted=True, used_tiers=frozenset({1})),
+    ],
+)
 async def test_an_amount_from_nowhere_is_blocked_always(kb, state):
     """Сумма, которой не было ни в истории агента, ни в ответе инструмента, —
     выдумка при любом состоянии диалога."""
     agent, _ = loop_for(kb, [FakeResponse(content=[TextBlock(FOREIGN)])])
-    result = await agent.run_turn("chat-1", list(QUOTED_BEFORE), "ну что, подойдёт?",
-                                  state=state)
+    result = await agent.run_turn("chat-1", list(QUOTED_BEFORE), "ну что, подойдёт?", state=state)
 
     assert "12 000" not in result.text
     assert result.llm_meta["guard_rail"] == GUARD_RAIL_VIOLATION
@@ -3303,10 +3696,13 @@ async def test_an_amount_from_nowhere_is_blocked_always(kb, state):
 async def test_an_amount_from_nowhere_is_blocked_even_after_a_tool_call(kb):
     """Второй ценовой рубеж: инструмент вызван, но сумма не из его ответа и
     не из прошлых сообщений агента."""
-    agent, _ = loop_for(kb, [
-        FakeResponse(content=[ToolUseBlock(name="get_zones", input={})]),
-        FakeResponse(content=[TextBlock(FOREIGN)]),
-    ])
+    agent, _ = loop_for(
+        kb,
+        [
+            FakeResponse(content=[ToolUseBlock(name="get_zones", input={})]),
+            FakeResponse(content=[TextBlock(FOREIGN)]),
+        ],
+    )
     result = await agent.run_turn("chat-1", list(QUOTED_BEFORE), "ну что, подойдёт?")
 
     assert result.llm_meta["guard_rail"] == AMOUNT_MISMATCH_VIOLATION
@@ -3314,10 +3710,13 @@ async def test_an_amount_from_nowhere_is_blocked_even_after_a_tool_call(kb):
 
 async def test_a_repeat_passes_the_second_price_guard_too(kb):
     """Инструмент вызван (не цена), сумма — повтор уже названной: проходит."""
-    agent, _ = loop_for(kb, [
-        FakeResponse(content=[ToolUseBlock(name="get_zones", input={})]),
-        FakeResponse(content=[TextBlock(REPEAT)]),
-    ])
+    agent, _ = loop_for(
+        kb,
+        [
+            FakeResponse(content=[ToolUseBlock(name="get_zones", input={})]),
+            FakeResponse(content=[TextBlock(REPEAT)]),
+        ],
+    )
     result = await agent.run_turn("chat-1", list(QUOTED_BEFORE), "ну что, подойдёт?")
 
     assert result.text == REPEAT
@@ -3340,6 +3739,4 @@ def test_amounts_sent_before_reads_thousands_the_same_way():
     """«14 тыс.» в истории и «14 000 ₽» в ответе — одна сумма."""
     history = [{"role": "assistant", "content": "Выйдет 14 тыс. за 4 часа."}]
     assert "14000" in amounts_sent_before(history, None)
-    assert amounts_sent_before(
-        history, DialogConcessionState(used_tiers=frozenset({1}))
-    ) == set()
+    assert amounts_sent_before(history, DialogConcessionState(used_tiers=frozenset({1}))) == set()

@@ -32,14 +32,17 @@ from __future__ import annotations
 import copy
 import re
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any
 
 # $.a.b[0].c  |  $.a[id=zone_x].b
-_STEP_RE = re.compile(r"""
+_STEP_RE = re.compile(
+    r"""
     \.(?P<key>[A-Za-z_][A-Za-z0-9_]*)      # .key
   | \[(?P<index>\d+)\]                      # [0]
   | \[id=(?P<id>[^\]]+)\]                   # [id=dome_bags]
-""", re.VERBOSE)
+""",
+    re.VERBOSE,
+)
 
 
 class OverrideError(ValueError):
@@ -52,7 +55,7 @@ class IdSelector:
     value: str
 
 
-Step = Union[str, int, IdSelector]
+Step = str | int | IdSelector
 
 
 def parse_path(path: str) -> list[Step]:

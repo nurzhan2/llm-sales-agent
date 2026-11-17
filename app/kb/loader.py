@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date as DateType
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, Literal, Optional, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -39,11 +39,12 @@ T = TypeVar("T")
 # Core disputed-value machinery
 # --------------------------------------------------------------------------
 
+
 class DisputedBlock(BaseModel):
     variants: list[Any] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
     question_id: str
-    note: Optional[str] = None
+    note: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -58,14 +59,14 @@ class DisputedValue(BaseModel, Generic[T]):
     allowed us to resolve ourselves).
     """
 
-    value: Optional[T] = None
-    disputed: Optional[DisputedBlock] = None
-    resolved_from: Optional[str] = None
+    value: T | None = None
+    disputed: DisputedBlock | None = None
+    resolved_from: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_exclusive(self) -> "DisputedValue[T]":
+    def _check_exclusive(self) -> DisputedValue[T]:
         if self.value is not None and self.disputed is not None:
             raise ValueError("DisputedValue cannot have both `value` and `disputed` set")
         if self.value is None and self.disputed is None:
@@ -87,8 +88,8 @@ class ZonesFinding(BaseModel):
     """
 
     value: list[str]
-    note: Optional[str] = None
-    question_id: Optional[str] = None
+    note: str | None = None
+    question_id: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -96,6 +97,7 @@ class ZonesFinding(BaseModel):
 # --------------------------------------------------------------------------
 # catalog.yaml
 # --------------------------------------------------------------------------
+
 
 class Meta(BaseModel):
     version: int
@@ -106,7 +108,7 @@ class WorkingWindow(BaseModel):
     from_: str = Field(alias="from")
     to: str
     disputed: bool = False
-    resolved_from: Optional[str] = None
+    resolved_from: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -117,13 +119,13 @@ class Holidays(BaseModel):
     pricing engine blocks on these dates rather than guessing."""
 
     provisional: bool
-    question_id: Optional[str] = None
-    resolved_from: Optional[str] = None
+    question_id: str | None = None
+    resolved_from: str | None = None
     dates: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
-    def contains(self, d: "DateType") -> bool:
+    def contains(self, d: DateType) -> bool:
         return f"{d.month:02d}-{d.day:02d}" in set(self.dates)
 
 
@@ -137,7 +139,7 @@ class Constants(BaseModel):
 class Venue(BaseModel):
     id: str
     name: str
-    address: Optional[str] = None
+    address: str | None = None
 
 
 class ZoneCategory(str, Enum):
@@ -174,16 +176,16 @@ class Zone(BaseModel):
     # zone_id намеренно не переименовывается под это — слишком много кода
     # завязано на текущие id. Вместо этого агент знает оба имени и отвечает
     # словами клиента, а не поправляет его.
-    display_name_alt: Optional[str] = None
+    display_name_alt: str | None = None
     category: ZoneCategory
     capacity: DisputedValue[int]
     description: str
     includes: list[str] = Field(default_factory=list)
     photos: list[str] = Field(default_factory=list)
-    booking_window: Optional[BookingWindow] = None
+    booking_window: BookingWindow | None = None
     pricing: dict[str, Any]
-    day_package: Optional[dict[str, Any]] = None
-    extra_services: Optional[dict[str, Any]] = None
+    day_package: dict[str, Any] | None = None
+    extra_services: dict[str, Any] | None = None
     promos_applicable: list[str] = Field(default_factory=list)
     # Темы, по которым заказчик велел не называть цену, а сразу передавать
     # диалог администратору (ответы 6.2-6.5). Это правила, а не прайс.
@@ -201,33 +203,33 @@ class Zone(BaseModel):
 class ExtraItem(BaseModel):
     id: str
     name: str
-    price: Optional[DisputedValue[int]] = None
-    weekday_price: Optional[DisputedValue[int]] = None
-    weekend_price: Optional[DisputedValue[int]] = None
+    price: DisputedValue[int] | None = None
+    weekday_price: DisputedValue[int] | None = None
+    weekend_price: DisputedValue[int] | None = None
 
     model_config = ConfigDict(extra="forbid")
 
 
 class KnowledgeEntry(BaseModel):
     question_topic: str
-    answer: Optional[str] = None
-    source: Optional[str] = None
+    answer: str | None = None
+    source: str | None = None
     confidence: Literal["confirmed", "from_dialogs", "unknown"]
-    question_id: Optional[str] = None
+    question_id: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
 
 class OpenQuestion(BaseModel):
     id: str
-    section: Optional[str] = None
+    section: str | None = None
     text: str
     blocking: bool
     status: Literal["open", "answered"] = "open"
-    note: Optional[str] = None
+    note: str | None = None
     # Set when WE picked a working default instead of waiting for the client.
     # The question stays open — the default is ours to defend, not theirs.
-    resolved_by: Optional[str] = None
+    resolved_by: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -245,7 +247,7 @@ class Catalog(BaseModel):
     site_photos: dict[str, list[str]] = Field(default_factory=dict)
     # 14.7: ссылка на сайт комплекса для зон, которых нет в объявлениях Авито.
     # Ни в одном источнике проекта такая ссылка не встречалась — не выдумываем.
-    site_url: Optional[DisputedValue[str]] = None
+    site_url: DisputedValue[str] | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -254,6 +256,7 @@ class Catalog(BaseModel):
 # promos.yaml
 # --------------------------------------------------------------------------
 
+
 class Promo(BaseModel):
     id: str
     name: str
@@ -261,18 +264,18 @@ class Promo(BaseModel):
     applies_to_zones: list[str] = Field(default_factory=list)
     applies_to_modes: list[str] = Field(default_factory=list)
     conditions: dict[str, Any] = Field(default_factory=dict)
-    percent: Optional[DisputedValue[int]] = None
-    per_hour: Optional[DisputedValue[int]] = None
-    price: Optional[DisputedValue[int]] = None
-    window: Optional[dict[str, Any]] = None
-    days: Optional[list[str]] = None
-    repeatable: Optional[DisputedValue[bool]] = None
-    calculation_mode: Optional[DisputedValue[str]] = None
-    usable_in_parts: Optional[DisputedValue[bool]] = None
+    percent: DisputedValue[int] | None = None
+    per_hour: DisputedValue[int] | None = None
+    price: DisputedValue[int] | None = None
+    window: dict[str, Any] | None = None
+    days: list[str] | None = None
+    repeatable: DisputedValue[bool] | None = None
+    calculation_mode: DisputedValue[str] | None = None
+    usable_in_parts: DisputedValue[bool] | None = None
     stackable: bool = True
     mutually_exclusive_with: list[str] = Field(default_factory=list)
-    disputed_zones: Optional[ZonesFinding] = None
-    resolved_from: Optional[str] = None
+    disputed_zones: ZonesFinding | None = None
+    resolved_from: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -286,6 +289,7 @@ class PromosFile(BaseModel):
 # --------------------------------------------------------------------------
 # concessions.yaml
 # --------------------------------------------------------------------------
+
 
 class Applicability(BaseModel):
     """When a ladder tier is *meaningless* for the situation, as opposed to
@@ -304,9 +308,9 @@ class LadderTier(BaseModel):
     type: Literal["non_price", "price"]
     description: str
     applicability: Applicability = Field(default_factory=Applicability)
-    effect: Optional[dict[str, Any]] = None
-    floor: Optional[dict[str, Any]] = None
-    confirmed_overrides: Optional[list[dict[str, Any]]] = None
+    effect: dict[str, Any] | None = None
+    floor: dict[str, Any] | None = None
+    confirmed_overrides: list[dict[str, Any]] | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -347,7 +351,7 @@ class ConcessionPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _ladder_is_sane(self) -> "ConcessionPolicy":
+    def _ladder_is_sane(self) -> ConcessionPolicy:
         tiers = [t.tier for t in self.ladder]
         if tiers != sorted(tiers):
             raise ValueError("ladder must be sorted by tier ascending")
@@ -368,7 +372,7 @@ class ConcessionPolicy(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _touch_templates_are_complete(self) -> "ConcessionPolicy":
+    def _touch_templates_are_complete(self) -> ConcessionPolicy:
         required = {"soft", "direct"}
         missing = required - set(self.touch_templates)
         if missing:
@@ -376,7 +380,7 @@ class ConcessionPolicy(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _exchange_is_structurally_valid(self) -> "ConcessionPolicy":
+    def _exchange_is_structurally_valid(self) -> ConcessionPolicy:
         """R11, checked structurally at LOAD time rather than by hunting for
         the word «если» at runtime. A substring check both over- and
         under-fires: «при условии, что бронируем сегодня» carries a real
@@ -415,6 +419,7 @@ class ConcessionsFile(BaseModel):
 # payment.yaml
 # --------------------------------------------------------------------------
 
+
 class Payment(BaseModel):
     method: str
     ai_may_send_payment_link: bool
@@ -424,7 +429,7 @@ class Payment(BaseModel):
     link_type: DisputedValue[str]
     prepayment_rule: DisputedValue[str]
     # 14.4: фиксированная предоплата для суточных зон и пакетов «весь день».
-    daily_and_package_prepayment: Optional[DisputedValue[int]] = None
+    daily_and_package_prepayment: DisputedValue[int] | None = None
     refund_rule: dict[str, Any]
     no_credentials_policy: dict[str, Any]
 
@@ -440,6 +445,7 @@ class PaymentFile(BaseModel):
 # --------------------------------------------------------------------------
 # Combined knowledge base
 # --------------------------------------------------------------------------
+
 
 class KnowledgeBase(BaseModel):
     catalog: Catalog
@@ -459,6 +465,7 @@ class KnowledgeBase(BaseModel):
 # every `disputed` block cites a real `question_id`) across those free-form
 # subtrees the same way pydantic enforces it for the strictly-typed fields.
 # --------------------------------------------------------------------------
+
 
 def _looks_like_disputed_value(node: dict) -> bool:
     """True for `{value: ...}` / `{value: null, disputed: {...}}` shaped
@@ -524,13 +531,21 @@ def collect_question_ids(node: Any) -> set[str]:
 
 # Matches Russian mobile numbers in the various formats seen in real_dialogs.md:
 # "+7926 000-00-00", "89260000000", "+7(926) 000 00 00", "8916 0000000", etc.
-PHONE_RE = re.compile(
-    r"(?:\+?7|8)[\s.\-]?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{2}[\s.\-]?\d{2}\b"
-)
+PHONE_RE = re.compile(r"(?:\+?7|8)[\s.\-]?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{2}[\s.\-]?\d{2}\b")
 
 BANK_KEYWORDS = [
-    "озон банк", "озонбанк", "т-банк", "тинькофф", "сбербанк", "сбер банк",
-    "альфа-банк", "альфабанк", "втб", "райффайзен", "газпромбанк", "почта банк",
+    "озон банк",
+    "озонбанк",
+    "т-банк",
+    "тинькофф",
+    "сбербанк",
+    "сбер банк",
+    "альфа-банк",
+    "альфабанк",
+    "втб",
+    "райффайзен",
+    "газпромбанк",
+    "почта банк",
 ]
 
 
@@ -552,12 +567,13 @@ def scan_for_credentials(text: str) -> list[str]:
 # Loading
 # --------------------------------------------------------------------------
 
+
 def _read_yaml(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-def read_raw_kb(kb_dir: Optional[Path] = None) -> dict:
+def read_raw_kb(kb_dir: Path | None = None) -> dict:
     """Четыре YAML как есть, без валидации и без правок.
 
     Отдельно от `load_catalog`, потому что слой правок (app/kb/overrides.py)
@@ -588,14 +604,16 @@ def validate_raw(raw: dict) -> KnowledgeBase:
         )
 
     if structural_errors:
-        raise ValueError("Invalid knowledge base:\n" + "\n".join(f"- {e}" for e in structural_errors))
+        raise ValueError(
+            "Invalid knowledge base:\n" + "\n".join(f"- {e}" for e in structural_errors)
+        )
 
     return KnowledgeBase.model_validate(raw)
 
 
 def load_catalog(
-    kb_dir: Optional[Path] = None,
-    overrides: Optional[list] = None,
+    kb_dir: Path | None = None,
+    overrides: list | None = None,
 ) -> KnowledgeBase:
     """Load and fully validate the four KB files. Raises on anything invalid
     — an app built on top of this must not start with a broken knowledge
@@ -626,7 +644,9 @@ def load_catalog(
         )
 
     if structural_errors:
-        raise ValueError("Invalid knowledge base:\n" + "\n".join(f"- {e}" for e in structural_errors))
+        raise ValueError(
+            "Invalid knowledge base:\n" + "\n".join(f"- {e}" for e in structural_errors)
+        )
 
     kb = KnowledgeBase.model_validate(raw)
 
@@ -644,6 +664,7 @@ def load_catalog(
 # --------------------------------------------------------------------------
 # Readiness audit
 # --------------------------------------------------------------------------
+
 
 @dataclass
 class ZoneReadiness:
@@ -672,7 +693,7 @@ class ZoneReadiness:
     pricing_fields_total: int
     pricing_fields_disputed: int
     ready_for_pricing: bool
-    dialog_blockers: list[str]          # question_ids blocking full dialog
+    dialog_blockers: list[str]  # question_ids blocking full dialog
     ready_for_dialog: bool
 
 
@@ -716,9 +737,7 @@ def audit_readiness(kb: KnowledgeBase) -> list[ZoneReadiness]:
         ready_for_pricing = not pricing_disputed
 
         # --- dialog verdict --------------------------------------------------
-        blockers: list[str] = [
-            n["disputed"]["question_id"] for n in pricing_disputed
-        ]
+        blockers: list[str] = [n["disputed"]["question_id"] for n in pricing_disputed]
         capacity = dumped.get("capacity") or {}
         if capacity.get("disputed"):
             blockers.append(capacity["disputed"]["question_id"])
@@ -748,15 +767,15 @@ def global_blockers(kb: KnowledgeBase) -> list[OpenQuestion]:
     for row in audit_readiness(kb):
         zone_scoped |= set(row.dialog_blockers)
     return [
-        q for q in kb.catalog.open_questions
+        q
+        for q in kb.catalog.open_questions
         if q.blocking and q.status == "open" and q.id not in zone_scoped
     ]
 
 
 def format_readiness_table(report: list[ZoneReadiness]) -> str:
     header = (
-        f"{'zone':<18} {'price flds':>10} {'disputed':>9} "
-        f"{'pricing?':>9} {'dialog?':>8}  blockers"
+        f"{'zone':<18} {'price flds':>10} {'disputed':>9} {'pricing?':>9} {'dialog?':>8}  blockers"
     )
     lines = [header, "-" * (len(header) + 12)]
     for row in report:

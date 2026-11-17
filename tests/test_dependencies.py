@@ -35,11 +35,6 @@ IMPORT_TO_PACKAGE = {
 
 
 def _stdlib_modules() -> set[str]:
-    if sys.version_info < (3, 10):
-        raise RuntimeError(
-            "sys.stdlib_module_names требует Python 3.10+ — проект и так "
-            "таргетит 3.12 (см. Dockerfile), поэтому здесь без fallback."
-        )
     return set(sys.stdlib_module_names)
 
 
@@ -89,11 +84,7 @@ def _declared_packages() -> set[str]:
 
 
 def test_every_third_party_import_is_declared_in_requirements():
-    paths = [
-        p
-        for d in SCAN_DIRS
-        for p in (REPO_ROOT / d).rglob("*.py")
-    ]
+    paths = [p for d in SCAN_DIRS for p in (REPO_ROOT / d).rglob("*.py")]
     imported = _third_party_imports(paths)
     declared = _declared_packages()
 

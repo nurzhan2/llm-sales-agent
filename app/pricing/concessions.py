@@ -43,7 +43,7 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import date as DateType
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from app.kb.loader import KnowledgeBase, LadderTier
 from app.pricing.engine import Money, PriceQuote, money
@@ -63,7 +63,7 @@ class DialogConcessionState:
     base_price_quoted: bool = False
     used_tiers: frozenset[int] = frozenset()
     # R9 ratchet: the lowest total already promised in this dialog.
-    floor_reached: Optional[Money] = None
+    floor_reached: Money | None = None
     # R13: how many touches have actually been SENT in this dialog (the
     # first price quote counts as touch 1; touches 2-3 come from the
     # scheduler — app.agent.touch_tracking). Not a timestamp: the gate below
@@ -123,12 +123,12 @@ class ConcessionRequest:
     # НИКОГДА не модель: выдуманная загрузка раздавала бы реальные скидки.
     # None означает «посчитать неоткуда» (в YCLIENTS сейчас 0 зон из 10) —
     # тогда ценовая уступка уходит на одобрение оператору, а не запрещается.
-    occupancy_ratio: Optional[float] = None
+    occupancy_ratio: float | None = None
     already_used_tiers: tuple[int, ...] = ()
     concessions_today: int = 0
     client_constraints: frozenset[str] = frozenset()
     base_price_quoted: bool = True
-    floor_reached: Optional[Money] = None
+    floor_reached: Money | None = None
     # R13 — регламент скидок: сколько раз мы уже касались клиента (первая
     # названная цена = касание 1). Ценовые ступени открываются не раньше
     # policy.conditions.min_touches_before_price, если не сработал
@@ -147,14 +147,14 @@ class ConcessionRequest:
 @dataclass(frozen=True)
 class ConcessionDecision:
     allowed: bool
-    tier: Optional[int] = None
-    kind: Optional[Kind] = None
-    new_quote: Optional[PriceQuote] = None
+    tier: int | None = None
+    kind: Kind | None = None
+    new_quote: PriceQuote | None = None
     exchange_required: str = ""
     offer_template: str = ""
     revenue_delta: Money = Decimal("0")
-    revenue_delta_basis: Optional[DeltaBasis] = None
-    denial_reason: Optional[str] = None
+    revenue_delta_basis: DeltaBasis | None = None
+    denial_reason: str | None = None
     blocking_question_ids: tuple[str, ...] = ()
     skipped_tiers: tuple[int, ...] = ()
     # True when the grant rests on a threshold WE set provisionally rather
@@ -181,9 +181,9 @@ class ConcessionEvent:
     для отображения; список целиком остаётся в логе R12."""
 
     decision: ConcessionDecision
-    base_price: Optional[Money]
-    zone_id: Optional[str]
-    trigger: Optional[str]
+    base_price: Money | None
+    zone_id: str | None
+    trigger: str | None
 
     @property
     def needs_operator_approval(self) -> bool:
@@ -199,6 +199,7 @@ class ConcessionEvent:
 # --------------------------------------------------------------------------
 # Logging (R12)
 # --------------------------------------------------------------------------
+
 
 def _needs_operator(
     req: ConcessionRequest,
@@ -255,9 +256,14 @@ def _log(req: ConcessionRequest, decision: ConcessionDecision) -> None:
     )
 
 
-def _deny(req: ConcessionRequest, reason: str, tier: Optional[int] = None,
-          question_ids: tuple[str, ...] = (), skipped: tuple[int, ...] = (),
-          daily_limit_exhausted: bool = False) -> ConcessionDecision:
+def _deny(
+    req: ConcessionRequest,
+    reason: str,
+    tier: int | None = None,
+    question_ids: tuple[str, ...] = (),
+    skipped: tuple[int, ...] = (),
+    daily_limit_exhausted: bool = False,
+) -> ConcessionDecision:
     decision = ConcessionDecision(
         allowed=False,
         tier=tier,
@@ -274,16 +280,17 @@ def _deny(req: ConcessionRequest, reason: str, tier: Optional[int] = None,
 # Applicability predicates
 # --------------------------------------------------------------------------
 
-def _zone(kb: KnowledgeBase, zone_id: Optional[str]):
+
+def _zone(kb: KnowledgeBase, zone_id: str | None):
     return next((z for z in kb.catalog.zones if z.id == zone_id), None)
 
 
-def _zone_category(kb: KnowledgeBase, zone_id: Optional[str]) -> Optional[str]:
+def _zone_category(kb: KnowledgeBase, zone_id: str | None) -> str | None:
     zone = _zone(kb, zone_id)
     return zone.category.value if zone else None
 
 
-def _hourly_rate_of(zone, day_type: Optional[str]) -> Optional[Money]:
+def _hourly_rate_of(zone, day_type: str | None) -> Money | None:
     """A zone's plain hourly rate, or None when it is absent or disputed."""
     key = "weekday_per_hour" if day_type == "weekday" else "weekend_per_hour"
     node = zone.pricing.get(key)
@@ -390,8 +397,10 @@ def is_applicable(tier: LadderTier, req: ConcessionRequest, kb: KnowledgeBase) -
 # Floors
 # --------------------------------------------------------------------------
 
-def _resolve_floor(kb: KnowledgeBase, tier: LadderTier, zone_id: Optional[str],
-                   day_type: Optional[str]) -> tuple[Optional[dict], Optional[str]]:
+
+def _resolve_floor(
+    kb: KnowledgeBase, tier: LadderTier, zone_id: str | None, day_type: str | None
+) -> tuple[dict | None, str | None]:
     category = _zone_category(kb, zone_id)
     for override in tier.confirmed_overrides or []:
         scope = override.get("scope", {})
@@ -416,6 +425,7 @@ def _resolve_floor(kb: KnowledgeBase, tier: LadderTier, zone_id: Optional[str],
 # --------------------------------------------------------------------------
 # Main entry point
 # --------------------------------------------------------------------------
+
 
 def decide(req: ConcessionRequest, kb: KnowledgeBase) -> ConcessionDecision:
     policy = kb.concessions.policy
@@ -442,7 +452,9 @@ def decide(req: ConcessionRequest, kb: KnowledgeBase) -> ConcessionDecision:
     non_price_tiers = {t.tier for t in policy.ladder if t.type == "non_price"}
     counted = used & price_tiers if policy.limits_count_only_price_tiers else used
     if len(counted) >= policy.max_concessions_per_dialog:
-        return _deny(req, f"R10: исчерпан лимит уступок за диалог ({policy.max_concessions_per_dialog})")
+        return _deny(
+            req, f"R10: исчерпан лимит уступок за диалог ({policy.max_concessions_per_dialog})"
+        )
     if req.concessions_today >= policy.max_concessions_per_day:
         return _deny(
             req,
@@ -465,7 +477,9 @@ def decide(req: ConcessionRequest, kb: KnowledgeBase) -> ConcessionDecision:
     # UNKNOWN) убивал всю лестницу целиком, а не только ценовую её часть.
     if req.slot_availability_known and not req.slot_confirmed_free:
         return _deny(req, "R6: слот занят — нужна не скидка, а другое время")
-    if policy.conditions.get("not_holiday") and kb.catalog.constants.holidays.contains(req.booking_date):
+    if policy.conditions.get("not_holiday") and kb.catalog.constants.holidays.contains(
+        req.booking_date
+    ):
         return _deny(req, "R6: праздничная дата (определено движком по constants.holidays)")
 
     # ---- tier selection: used | skipped | candidate ----------------------
@@ -473,7 +487,7 @@ def decide(req: ConcessionRequest, kb: KnowledgeBase) -> ConcessionDecision:
     attempts_exhausted = attempts_made >= policy.max_non_price_attempts_before_price
 
     skipped: list[int] = []
-    candidate: Optional[LadderTier] = None
+    candidate: LadderTier | None = None
 
     for tier in sorted(policy.ladder, key=lambda t: t.tier):
         if tier.tier in used:
@@ -504,7 +518,8 @@ def decide(req: ConcessionRequest, kb: KnowledgeBase) -> ConcessionDecision:
     # R4 — every applicable non_price tier must be used or skipped by now.
     # The ordered loop above guarantees it; this is the explicit guard.
     unresolved_non_price = [
-        t.tier for t in policy.ladder
+        t.tier
+        for t in policy.ladder
         if t.type == "non_price" and t.tier not in used and t.tier not in skipped
     ]
     if unresolved_non_price:
@@ -564,7 +579,9 @@ def decide(req: ConcessionRequest, kb: KnowledgeBase) -> ConcessionDecision:
     provisional = bool(threshold.get("provisional"))
     limit = threshold.get("value")
     if limit is None:
-        question_id = (threshold.get("disputed") or {}).get("question_id") or threshold.get("question_id")
+        question_id = (threshold.get("disputed") or {}).get("question_id") or threshold.get(
+            "question_id"
+        )
         return _deny(
             req,
             "R7: порог загрузки не задан — ценовые ступени запрещены",
@@ -612,6 +629,7 @@ def decide(req: ConcessionRequest, kb: KnowledgeBase) -> ConcessionDecision:
 # Granting
 # --------------------------------------------------------------------------
 
+
 def _render_template(kb: KnowledgeBase, tier: LadderTier, **values: Any) -> tuple[str, str]:
     """Fill a template. The exchange clause comes from the KB's own
     vocabulary, so the promised condition can never drift from the list of
@@ -625,14 +643,15 @@ def _render_template(kb: KnowledgeBase, tier: LadderTier, **values: Any) -> tupl
     return text, template.exchange
 
 
-def _grant_non_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
-                     skipped: tuple[int, ...]) -> ConcessionDecision:
+def _grant_non_price(
+    req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier, skipped: tuple[int, ...]
+) -> ConcessionDecision:
     text, exchange = _render_template(kb, tier)
     decision = ConcessionDecision(
         allowed=True,
         tier=tier.tier,
         kind="non_price",
-        new_quote=None,          # an offer to change the booking, not a recalc
+        new_quote=None,  # an offer to change the booking, not a recalc
         exchange_required=exchange,
         offer_template=text,
         revenue_delta=Decimal("0"),
@@ -643,7 +662,7 @@ def _grant_non_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier
     return decision
 
 
-def _policy_min_hours(kb: KnowledgeBase, zone_id: Optional[str]) -> Optional[int]:
+def _policy_min_hours(kb: KnowledgeBase, zone_id: str | None) -> int | None:
     """The strictest minimum the zone might have. When the minimum itself is
     disputed we take the largest variant, so the recorded loss is never
     understated."""
@@ -660,9 +679,14 @@ def _policy_min_hours(kb: KnowledgeBase, zone_id: Optional[str]) -> Optional[int
     return max(ints) if ints else None
 
 
-def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
-                 floor: dict, skipped: tuple[int, ...],
-                 provisional: bool) -> ConcessionDecision:
+def _grant_price(
+    req: ConcessionRequest,
+    kb: KnowledgeBase,
+    tier: LadderTier,
+    floor: dict,
+    skipped: tuple[int, ...],
+    provisional: bool,
+) -> ConcessionDecision:
     quote = req.quote
 
     if tier.id == "reduce_hourly_rate":
@@ -670,8 +694,12 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
         if quote.base_rate is None or quote.billable_hours is None:
             return _deny(req, "Нет базовой ставки в расчёте", tier=tier.tier, skipped=skipped)
         if floor_rate >= quote.base_rate:
-            return _deny(req, "R8: пол не ниже действующей ставки — уступать нечего",
-                         tier=tier.tier, skipped=skipped)
+            return _deny(
+                req,
+                "R8: пол не ниже действующей ставки — уступать нечего",
+                tier=tier.tier,
+                skipped=skipped,
+            )
 
         new_total = money(floor_rate * Decimal(quote.billable_hours))
 
@@ -681,7 +709,8 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
             return _deny(
                 req,
                 f"R9: храповик — цена уже опускалась до {req.floor_reached}, поднимать обратно нельзя",
-                tier=tier.tier, skipped=skipped,
+                tier=tier.tier,
+                skipped=skipped,
             )
 
         from dataclasses import replace as _replace
@@ -693,9 +722,7 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
             human_readable=f"{quote.billable_hours} ч × {floor_rate} ₽ = {new_total} ₽",
             base_rate=floor_rate,
         )
-        text, exchange = _render_template(
-            kb, tier, new_rate=floor_rate, base_rate=quote.base_rate
-        )
+        text, exchange = _render_template(kb, tier, new_rate=floor_rate, base_rate=quote.base_rate)
         decision = ConcessionDecision(
             allowed=True,
             tier=tier.tier,
@@ -726,7 +753,8 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
             delta = money(-(quote.base_rate * Decimal(policy_min - granted_min)))
 
         text, exchange = _render_template(
-            kb, tier,
+            kb,
+            tier,
             new_min_hours=granted_min,
             base_min_hours=policy_min if policy_min is not None else granted_min,
         )
@@ -734,7 +762,7 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
             allowed=True,
             tier=tier.tier,
             kind="price",
-            new_quote=None,       # the rate is unchanged; only the minimum bends
+            new_quote=None,  # the rate is unchanged; only the minimum bends
             exchange_required=exchange,
             offer_template=text,
             revenue_delta=delta,
@@ -757,8 +785,10 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
             return _deny(req, "Нет базовой суммы в расчёте", tier=tier.tier, skipped=skipped)
         if floor_rate >= quote.total:
             return _deny(
-                req, "R8: пол не ниже действующей цены — уступать нечего",
-                tier=tier.tier, skipped=skipped,
+                req,
+                "R8: пол не ниже действующей цены — уступать нечего",
+                tier=tier.tier,
+                skipped=skipped,
             )
 
         # R9 — храповик.
@@ -766,7 +796,8 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
             return _deny(
                 req,
                 f"R9: храповик — цена уже опускалась до {req.floor_reached}",
-                tier=tier.tier, skipped=skipped,
+                tier=tier.tier,
+                skipped=skipped,
             )
 
         new_quote = replace(
@@ -775,9 +806,7 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
             warnings=quote.warnings + ("Суточная ставка снижена по ступени уступки.",),
             human_readable=f"Домик на сутки — {floor_rate} ₽",
         )
-        text, exchange = _render_template(
-            kb, tier, new_rate=floor_rate, base_rate=anchor
-        )
+        text, exchange = _render_template(kb, tier, new_rate=floor_rate, base_rate=anchor)
         decision = ConcessionDecision(
             allowed=True,
             tier=tier.tier,
@@ -796,8 +825,9 @@ def _grant_price(req: ConcessionRequest, kb: KnowledgeBase, tier: LadderTier,
     return _deny(req, f"Неизвестная ценовая ступень {tier.id!r}", tier=tier.tier, skipped=skipped)
 
 
-def _anchor_for(kb: KnowledgeBase, tier: LadderTier, zone_id: Optional[str],
-                day_type: Optional[str]) -> Optional[int]:
+def _anchor_for(
+    kb: KnowledgeBase, tier: LadderTier, zone_id: str | None, day_type: str | None
+) -> int | None:
     """Анкор — цена, которую агент называет ПЕРВОЙ (ответ 2.1: 15 000)."""
     category = _zone_category(kb, zone_id)
     for override in tier.confirmed_overrides or []:

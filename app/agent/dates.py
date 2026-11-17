@@ -17,22 +17,31 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date as DateType
+from datetime import timedelta
+
 from app.clock import moscow_today
-from datetime import date as DateType, timedelta
-from typing import Optional
 
 _MONTHS_GENITIVE = {
-    "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
-    "июля": 7, "августа": 8, "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
 }
 
 # Порядок alternation значения не имеет: \b не даёт "завтра" случайно
 # совпасть внутри "послезавтра" — между "после" и "завтра" нет границы
 # слова (обе стороны — словесные символы для \w с юникодом).
 _RELATIVE_DAYS = {"сегодня": 0, "завтра": 1, "послезавтра": 2}
-_RELATIVE_RE = re.compile(
-    r"\b(" + "|".join(_RELATIVE_DAYS) + r")\b", re.IGNORECASE
-)
+_RELATIVE_RE = re.compile(r"\b(" + "|".join(_RELATIVE_DAYS) + r")\b", re.IGNORECASE)
 
 # «29 августа», «29 августа 2027» — регистр не важен, год необязателен.
 _DAY_MONTH_RE = re.compile(
@@ -53,20 +62,20 @@ class DateResolution:
     year_inferred: bool
 
 
-def _nearest_future(day: int, month: int, today: DateType) -> Optional[DateType]:
+def _nearest_future(day: int, month: int, today: DateType) -> DateType | None:
     try:
         candidate = DateType(today.year, month, day)
     except ValueError:
-        return None   # 31 февраля и т.п. — не гадаем, какое число имелось в виду
+        return None  # 31 февраля и т.п. — не гадаем, какое число имелось в виду
     if candidate < today:
         try:
             candidate = candidate.replace(year=today.year + 1)
         except ValueError:
-            return None   # 29 февраля, следующий год невисокосный
+            return None  # 29 февраля, следующий год невисокосный
     return candidate
 
 
-def resolve_relative_date(text: str, today: Optional[DateType] = None) -> Optional[DateResolution]:
+def resolve_relative_date(text: str, today: DateType | None = None) -> DateResolution | None:
     """Первая распознанная дата во фразе, или None, если не распозналась.
 
     Порядок попыток: готовый ISO (модель могла передать корректную дату

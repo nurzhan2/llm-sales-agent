@@ -13,7 +13,7 @@ docs/analysis/contradictions.md: каждый из них закрывает к�
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from app.clock import MOSCOW_TZ, WEEKDAYS_RU, describe_now, moscow_now
 from app.kb.loader import KnowledgeBase
@@ -356,7 +356,7 @@ def _catalog_block(kb: KnowledgeBase) -> str:
     return "\n".join(lines)
 
 
-def build_now_block(now: Optional[datetime] = None) -> str:
+def build_now_block(now: datetime | None = None) -> str:
     """Блок «Сейчас:» — единственный источник текущей даты для модели.
 
     ЗАВТРАШНЯЯ ДАТА ПОСЧИТАНА ЗДЕСЬ, А НЕ ОСТАВЛЕНА МОДЕЛИ. Инцидент
@@ -388,8 +388,7 @@ def build_now_block(now: Optional[datetime] = None) -> str:
         "Прежде чем написать в ответе слово «сегодня» или «завтра» рядом с "
         "числом, сверь это число со строками выше — оно обязано совпасть.\n"
         f"Повторю, потому что на этом уже ошибались: сегодня {today_s}, "
-        f"завтра {tomorrow_s}.\n"
-        + _upcoming_days(moment)
+        f"завтра {tomorrow_s}.\n" + _upcoming_days(moment)
     )
 
 
@@ -414,14 +413,11 @@ def _upcoming_days(moment: datetime) -> str:
         for day in (moment + timedelta(days=offset) for offset in range(UPCOMING_DAYS))
     ]
     return (
-        "ДНИ НЕДЕЛИ на ближайшие две недели — бери отсюда, не считай сам:\n"
-        + "; ".join(days) + "."
+        "ДНИ НЕДЕЛИ на ближайшие две недели — бери отсюда, не считай сам:\n" + "; ".join(days) + "."
     )
 
 
-def build_system_prompt(
-    kb: KnowledgeBase, now: Optional[datetime] = None
-) -> list[dict[str, Any]]:
+def build_system_prompt(kb: KnowledgeBase, now: datetime | None = None) -> list[dict[str, Any]]:
     """Системный промт блоками, каталог помечен для кеширования.
 
     ТЕКУЩАЯ ДАТА — ОТДЕЛЬНЫМ, НЕКЕШИРУЕМЫМ БЛОКОМ И ПОСЛЕДНЕЙ. Это не

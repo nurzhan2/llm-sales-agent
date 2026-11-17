@@ -22,7 +22,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -39,14 +39,15 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 # app/channels/avito_endpoints.py (спек молчит про размер/разрешение).
 # Консервативные дефолты, которые проходят у большинства площадок; если
 # Авито пришлёт другой лимит — меняется одна константа здесь.
-MAX_BYTES = 10 * 1024 * 1024       # 10 МБ
-MAX_DIMENSION = 4000                # пикселей по длинной стороне
-MIN_DIMENSION = 200                 # меньше — почти наверняка не фото зоны
+MAX_BYTES = 10 * 1024 * 1024  # 10 МБ
+MAX_DIMENSION = 4000  # пикселей по длинной стороне
+MIN_DIMENSION = 200  # меньше — почти наверняка не фото зоны
 
 
 # --------------------------------------------------------------------------
 # Сопоставление имени папки с zone_id / категорией
 # --------------------------------------------------------------------------
+
 
 def normalize_name(name: str) -> str:
     """Регистр, «ё», дефисы/подчёркивания/лишние пробелы — не важны."""
@@ -57,8 +58,8 @@ def normalize_name(name: str) -> str:
 
 @dataclass
 class FolderMap:
-    zones: dict[str, str]   # normalized synonym -> zone_id
-    site: dict[str, str]    # normalized synonym -> category key
+    zones: dict[str, str]  # normalized synonym -> zone_id
+    site: dict[str, str]  # normalized synonym -> category key
 
 
 def load_folder_map(path: Path = FOLDER_MAP_PATH) -> FolderMap:
@@ -89,8 +90,8 @@ class UnknownFolderError(ValueError):
 
 @dataclass(frozen=True)
 class ResolvedFolder:
-    kind: str   # "zone" | "site"
-    key: str    # zone_id или категория (playground/restroom/overview)
+    kind: str  # "zone" | "site"
+    key: str  # zone_id или категория (playground/restroom/overview)
 
 
 def resolve_folder(folder_name: str, folder_map: FolderMap) -> ResolvedFolder:
@@ -105,6 +106,7 @@ def resolve_folder(folder_name: str, folder_map: FolderMap) -> ResolvedFolder:
 # --------------------------------------------------------------------------
 # Проверка формата и размера, сжатие при необходимости
 # --------------------------------------------------------------------------
+
 
 def validate_image(path: Path) -> list[str]:
     """Список проблем; пустой список — файл годен к загрузке."""
@@ -154,9 +156,7 @@ def ensure_within_limits(path: Path, tmp_dir: Path) -> Path:
         img = img.convert("RGB")
         if needs_resize:
             scale = MAX_DIMENSION / max(img.size)
-            img = img.resize(
-                (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
-            )
+            img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))))
         quality = 90
         img.save(out_path, "JPEG", quality=quality, optimize=True)
         while out_path.stat().st_size > MAX_BYTES and quality > 40:
@@ -178,6 +178,7 @@ def ensure_within_limits(path: Path, tmp_dir: Path) -> Path:
 # Хеширование и манифест (идемпотентность)
 # --------------------------------------------------------------------------
 
+
 def sha256_of(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as f:
@@ -194,12 +195,15 @@ def load_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]:
 
 def save_manifest(data: dict[str, Any], path: Path = MANIFEST_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
 
 # --------------------------------------------------------------------------
 # Точечная правка catalog.yaml (сохраняет комментарии)
 # --------------------------------------------------------------------------
+
 
 def _format_list(image_ids: list[str]) -> str:
     """id В КАВЫЧКАХ, всегда. Без кавычек YAML читает «2654321» как число, а
@@ -244,21 +248,22 @@ def patch_site_photos(text: str, category: str, image_ids: list[str]) -> str:
         new_section = line_re.sub(f"  {category}: {_format_list(image_ids)}", section, count=1)
     else:
         new_section = section.rstrip("\n") + f"\n  {category}: {_format_list(image_ids)}\n"
-    return text[: match.start()] + new_section + text[match.end():]
+    return text[: match.start()] + new_section + text[match.end() :]
 
 
 # --------------------------------------------------------------------------
 # Пайплайн
 # --------------------------------------------------------------------------
 
+
 @dataclass
 class ZoneImportResult:
     kind: str
     key: str
-    image_ids: list[str] = field(default_factory=list)   # итоговый порядок для catalog.yaml
+    image_ids: list[str] = field(default_factory=list)  # итоговый порядок для catalog.yaml
     uploaded: int = 0
     reused: int = 0
-    skipped: list[tuple[str, str]] = field(default_factory=list)   # (filename, reason)
+    skipped: list[tuple[str, str]] = field(default_factory=list)  # (filename, reason)
 
 
 async def _upload_one(avito_client: Any, path: Path) -> str:
@@ -268,7 +273,9 @@ async def _upload_one(avito_client: Any, path: Path) -> str:
     response = await avito_client.upload_image(data, filename=path.name)
     image_id = _extract_image_id(response)
     if image_id is None:
-        raise RuntimeError(f"Avito uploadImages вернул неожиданный ответ для {path.name}: {response!r}")
+        raise RuntimeError(
+            f"Avito uploadImages вернул неожиданный ответ для {path.name}: {response!r}"
+        )
     return image_id
 
 
@@ -299,9 +306,7 @@ async def import_folder(
         problems = validate_image(file_path)
         if problems:
             result.skipped.append((file_path.name, "; ".join(problems)))
-            logger.warning(
-                "photo skipped", extra={"file": str(file_path), "problems": problems}
-            )
+            logger.warning("photo skipped", extra={"file": str(file_path), "problems": problems})
             continue
 
         file_hash = sha256_of(file_path)
@@ -337,11 +342,11 @@ async def import_root(
     *,
     dry_run: bool,
     avito_client: Any = None,
-    folder_map: Optional[FolderMap] = None,
-    manifest: Optional[dict[str, Any]] = None,
+    folder_map: FolderMap | None = None,
+    manifest: dict[str, Any] | None = None,
     catalog_path: Path = CATALOG_PATH,
     manifest_path: Path = MANIFEST_PATH,
-    tmp_dir: Optional[Path] = None,
+    tmp_dir: Path | None = None,
 ) -> ImportRun:
     if not dry_run and avito_client is None:
         raise ValueError("avito_client обязателен вне DRY_RUN")
@@ -363,9 +368,15 @@ async def import_root(
     try:
         with tempfile.TemporaryDirectory() as tmp:
             await _import_all_folders(
-                root, tmp_dir or Path(tmp), results, unmapped,
-                dry_run=dry_run, avito_client=avito_client, folder_map=folder_map,
-                manifest=manifest, catalog_path=catalog_path,
+                root,
+                tmp_dir or Path(tmp),
+                results,
+                unmapped,
+                dry_run=dry_run,
+                avito_client=avito_client,
+                folder_map=folder_map,
+                manifest=manifest,
+                catalog_path=catalog_path,
             )
     finally:
         if not dry_run:
@@ -395,9 +406,12 @@ async def _import_all_folders(
             continue
 
         result = await import_folder(
-            folder, resolved,
-            dry_run=dry_run, avito_client=avito_client,
-            manifest=manifest, tmp_dir=working_tmp,
+            folder,
+            resolved,
+            dry_run=dry_run,
+            avito_client=avito_client,
+            manifest=manifest,
+            tmp_dir=working_tmp,
         )
         results.append(result)
 

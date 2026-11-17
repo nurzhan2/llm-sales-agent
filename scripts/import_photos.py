@@ -34,17 +34,20 @@ import sys
 from pathlib import Path
 
 from app.config import get_settings
-from app.media.photo_import import UnknownFolderError, import_root
+from app.media.photo_import import import_root
 
 
 async def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("folder", type=Path, help="локальная папка с подпапками по зонам")
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="только проверить файлы и сопоставление папок, ничего не грузить",
     )
     args = parser.parse_args()
@@ -71,8 +74,10 @@ async def main() -> int:
 
     for result in run.results:
         label = f"[{result.kind}:{result.key}]"
-        print(f"{label} загружено: {result.uploaded}, уже было: {result.reused}, "
-              f"пропущено: {len(result.skipped)}")
+        print(
+            f"{label} загружено: {result.uploaded}, уже было: {result.reused}, "
+            f"пропущено: {len(result.skipped)}"
+        )
         for filename, reason in result.skipped:
             print(f"    пропущен {filename}: {reason}")
 

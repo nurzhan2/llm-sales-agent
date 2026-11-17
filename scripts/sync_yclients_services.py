@@ -46,8 +46,8 @@ import re
 import sys
 import unicodedata
 from dataclasses import dataclass
-from datetime import date as DateType, timedelta
-from typing import Optional
+from datetime import date as DateType
+from datetime import timedelta
 
 from app.booking.base import Service, Staff
 from app.booking.mapping import SqlAlchemyZoneMapping
@@ -102,7 +102,9 @@ class Candidate:
     score: float
 
 
-def best_candidates(zone_names: list[str], staff_list: list[Staff], limit: int = 3) -> list[Candidate]:
+def best_candidates(
+    zone_names: list[str], staff_list: list[Staff], limit: int = 3
+) -> list[Candidate]:
     """Лучшие `limit` сотрудников для зоны, по максимуму схожести среди всех
     имён зоны (name и display_name_alt — заказчик иногда называет зону
     иначе, чем она записана у нас, см. app/kb/loader.py:Zone)."""
@@ -146,8 +148,10 @@ def print_services_table(services: list[Service]) -> None:
     """Пункт 3 задачи: полный список услуг — отдельно от сопоставления зон,
     только для того, чтобы понять, как варианты брони (зона×длительность×
     день) соотносятся с зонами. Автоматически ни на что не матчится."""
-    print(f"\nУслуги в YCLIENTS ({len(services)}) — варианты брони "
-          f"(зона × длительность × тип дня), не сотрудники:")
+    print(
+        f"\nУслуги в YCLIENTS ({len(services)}) — варианты брони "
+        f"(зона × длительность × тип дня), не сотрудники:"
+    )
     if not services:
         print("  (пусто — см. примечание в /admin/booking: это состояние YCLIENTS, не наша связка)")
         return
@@ -163,7 +167,7 @@ def _zone_names(zone) -> list[str]:
     return names
 
 
-def _prompt(question: str) -> Optional[str]:
+def _prompt(question: str) -> str | None:
     try:
         return input(question).strip()
     except EOFError:
@@ -175,7 +179,9 @@ def _prompt(question: str) -> Optional[str]:
 
 
 def propose_mapping(
-    kb: KnowledgeBase, staff_list: list[Staff], existing: dict[str, dict],
+    kb: KnowledgeBase,
+    staff_list: list[Staff],
+    existing: dict[str, dict],
 ) -> dict[str, Candidate]:
     """Кандидат на КАЖДУЮ зону, у которой ещё нет связки. Возвращает только
     зоны, для которых нашёлся хоть один кандидат выше MIN_SCORE."""
@@ -190,11 +196,15 @@ def propose_mapping(
             continue
         top = candidates[0]
         proposals[zone.id] = top
-        print(f"  {zone.id:<20} {zone.name:<35} -> [{top.staff.staff_id}] "
-              f"{top.staff.name}  (схожесть {top.score:.0%})")
+        print(
+            f"  {zone.id:<20} {zone.name:<35} -> [{top.staff.staff_id}] "
+            f"{top.staff.name}  (схожесть {top.score:.0%})"
+        )
         for alt in candidates[1:]:
-            print(f"  {'':<20} {'':<35}    вариант: [{alt.staff.staff_id}] "
-                  f"{alt.staff.name}  (схожесть {alt.score:.0%})")
+            print(
+                f"  {'':<20} {'':<35}    вариант: [{alt.staff.staff_id}] "
+                f"{alt.staff.name}  (схожесть {alt.score:.0%})"
+            )
     return proposals
 
 
@@ -209,7 +219,9 @@ def _find_duplicate_staff_assignments(proposals: dict[str, Candidate]) -> dict[s
 
 
 def print_unmatched_and_conflicts(
-    kb: KnowledgeBase, proposals: dict[str, Candidate], existing: dict[str, dict],
+    kb: KnowledgeBase,
+    proposals: dict[str, Candidate],
+    existing: dict[str, dict],
 ) -> None:
     """Пункт 1 задачи: явно показать зону без пары. У заказчика 9
     сотрудников на 10 зон — минимум одна зона гарантированно останется
@@ -225,23 +237,29 @@ def print_unmatched_and_conflicts(
 
     conflicts = _find_duplicate_staff_assignments(proposals)
     if conflicts:
-        print("\n⚠ ОДИН СОТРУДНИК ПРЕДЛОЖЕН СРАЗУ ДЛЯ НЕСКОЛЬКИХ ЗОН — это ошибка "
-              "совпадения имён, не настоящая связка. Проверьте вручную:")
+        print(
+            "\n⚠ ОДИН СОТРУДНИК ПРЕДЛОЖЕН СРАЗУ ДЛЯ НЕСКОЛЬКИХ ЗОН — это ошибка "
+            "совпадения имён, не настоящая связка. Проверьте вручную:"
+        )
         for staff_id, zone_ids in conflicts.items():
             names = ", ".join(zone_ids)
             print(f"  staff_id={staff_id} -> {names}")
 
 
 async def confirm_and_apply(
-    kb: KnowledgeBase, proposals: dict[str, Candidate], mapping: SqlAlchemyZoneMapping,
+    kb: KnowledgeBase,
+    proposals: dict[str, Candidate],
+    mapping: SqlAlchemyZoneMapping,
 ) -> None:
     """service_id НЕ спрашивается автоматически (см. докстринг модуля —
     35 услуг это зона×длительность×день, не 1:1 с зоной) и не перезаписывается
     пустым: если оператор ничего не ввёл, ключ просто не передаётся в
     mapping.set(), а не затирается на None — иначе повторный прогон этого
     скрипта стирал бы service_id, заведённый отдельно в прошлый раз."""
-    print("\nПодтверждение по каждой зоне (Enter — принять предложенное, "
-          "или впишите свой staff_id, «n» — пропустить зону):")
+    print(
+        "\nПодтверждение по каждой зоне (Enter — принять предложенное, "
+        "или впишите свой staff_id, «n» — пропустить зону):"
+    )
     for zone in kb.catalog.zones:
         candidate = proposals.get(zone.id)
         if candidate is None:
@@ -275,12 +293,18 @@ async def confirm_and_apply(
         values["company_id"] = company_id or get_settings().yclients_company_id or None
 
         await mapping.set(zone.id, **values)
-        print(f"  записано: {zone.id} -> staff_id={staff_id}"
-              f"{', service_id=' + service_id if service_id else ' (service_id пока не задан)'}")
+        print(
+            f"  записано: {zone.id} -> staff_id={staff_id}"
+            f"{', service_id=' + service_id if service_id else ' (service_id пока не задан)'}"
+        )
 
 
-async def verify_live(provider: YClientsProvider, kb: KnowledgeBase, mapping: SqlAlchemyZoneMapping,
-                       check_date: DateType) -> None:
+async def verify_live(
+    provider: YClientsProvider,
+    kb: KnowledgeBase,
+    mapping: SqlAlchemyZoneMapping,
+    check_date: DateType,
+) -> None:
     """Пункт 4 общей задачи: реальный check_availability на только что
     записанных зонах. UNKNOWN здесь — не абстрактный риск, а сигнал «что-то
     из только что введённого не так», и его нужно увидеть сразу, а не после
@@ -298,11 +322,15 @@ async def verify_live(provider: YClientsProvider, kb: KnowledgeBase, mapping: Sq
         zone = next((z for z in kb.catalog.zones if z.id == zone_id), None)
         label = f"{zone_id} ({zone.name})" if zone else zone_id
         if availability.status.value == "unknown":
-            print(f"  ⚠ {label}: UNKNOWN — {availability.reason or 'причина не указана'}. "
-                  f"Связка не работает, проверьте staff_id (и company_id).")
+            print(
+                f"  ⚠ {label}: UNKNOWN — {availability.reason or 'причина не указана'}. "
+                f"Связка не работает, проверьте staff_id (и company_id)."
+            )
         else:
-            print(f"  ✓ {label}: {availability.status.value.upper()}"
-                  f"{' — свободные слоты: ' + ', '.join(availability.free_slots) if availability.free_slots else ''}")
+            print(
+                f"  ✓ {label}: {availability.status.value.upper()}"
+                f"{' — свободные слоты: ' + ', '.join(availability.free_slots) if availability.free_slots else ''}"
+            )
 
 
 async def main() -> int:
@@ -310,11 +338,20 @@ async def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     configure_logging()
 
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--apply", action="store_true",
-                        help="спросить подтверждение по каждой зоне и записать в zone_service_map")
-    parser.add_argument("--check-date", type=DateType.fromisoformat, default=None,
-                        help="дата для проверки check_availability после записи (по умолчанию — завтра)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="спросить подтверждение по каждой зоне и записать в zone_service_map",
+    )
+    parser.add_argument(
+        "--check-date",
+        type=DateType.fromisoformat,
+        default=None,
+        help="дата для проверки check_availability после записи (по умолчанию — завтра)",
+    )
     args = parser.parse_args()
     check_date = args.check_date or (DateType.today() + timedelta(days=1))
 
@@ -337,8 +374,10 @@ async def main() -> int:
     staff_list = await provider.get_staff()
     print_staff_table(staff_list)
     if not staff_list:
-        print("\nСписок сотрудников пуст — проверьте scripts/inspect_yclients.py "
-              "(раздел staff) и права токена на STAFF_FULL_LIST_DEPRECATED.")
+        print(
+            "\nСписок сотрудников пуст — проверьте scripts/inspect_yclients.py "
+            "(раздел staff) и права токена на STAFF_FULL_LIST_DEPRECATED."
+        )
         return 1
 
     # Пункт 3: полный список услуг — отдельно, только для обзора человеком.
@@ -347,15 +386,19 @@ async def main() -> int:
 
     existing = {zid: zone_mapping.get(zid) for zid in zone_mapping.mapped_zones()}
     if existing:
-        summary = ", ".join(f"{zid}(staff_id={row.get('staff_id')})" for zid, row in sorted(existing.items()))
+        summary = ", ".join(
+            f"{zid}(staff_id={row.get('staff_id')})" for zid, row in sorted(existing.items())
+        )
         print(f"\nУже связаны ({len(existing)}): {summary}")
 
     proposals = propose_mapping(kb, staff_list, existing)
     print_unmatched_and_conflicts(kb, proposals, existing)
 
     if not args.apply:
-        print("\n--apply не указан: ничего не записано. "
-              "Проверьте предложенные пары и перезапустите с --apply.")
+        print(
+            "\n--apply не указан: ничего не записано. "
+            "Проверьте предложенные пары и перезапустите с --apply."
+        )
         return 0
 
     if not proposals:

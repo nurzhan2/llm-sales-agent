@@ -25,7 +25,9 @@ def test_parse_path_keys_and_index():
 
 def test_parse_path_id_selector():
     assert parse_path("$.zones[id=dome_bags].pricing") == [
-        "zones", IdSelector("dome_bags"), "pricing",
+        "zones",
+        IdSelector("dome_bags"),
+        "pricing",
     ]
 
 
@@ -102,10 +104,13 @@ def test_set_at_unknown_path_raises_instead_of_creating_a_key():
 
 def test_apply_overrides_in_order_last_wins():
     doc = {"a": 1}
-    result = apply_overrides(doc, [
-        Override(path="$.a", value=2),
-        Override(path="$.a", value=3),
-    ])
+    result = apply_overrides(
+        doc,
+        [
+            Override(path="$.a", value=2),
+            Override(path="$.a", value=3),
+        ],
+    )
     assert result == {"a": 3}
 
 
@@ -116,8 +121,11 @@ def test_apply_overrides_empty_list_is_a_noop():
 
 def test_apply_overrides_across_different_paths():
     doc = {"a": 1, "b": {"c": 2}}
-    result = apply_overrides(doc, [
-        Override(path="$.a", value=10),
-        Override(path="$.b.c", value=20),
-    ])
+    result = apply_overrides(
+        doc,
+        [
+            Override(path="$.a", value=10),
+            Override(path="$.b.c", value=20),
+        ],
+    )
     assert result == {"a": 10, "b": {"c": 20}}

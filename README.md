@@ -92,7 +92,7 @@ from app.pricing.engine import quote, PriceRequest
 from app.pricing.quote_gate import apply_dialog_floor
 
 raw = quote(PriceRequest(...), kb)
-final = apply_dialog_floor(raw, dialog_state)   # ← обязательный шаг
+final = apply_dialog_floor(raw, dialog_state)  # ← обязательный шаг
 send_to_client(final.human_readable)
 ```
 

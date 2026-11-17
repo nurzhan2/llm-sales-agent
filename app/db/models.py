@@ -10,16 +10,16 @@ app/pricing/quote_gate.py exists to prevent.
 from __future__ import annotations
 
 import enum
-from datetime import date as DateType, datetime
+from datetime import date as DateType
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     Date,
     DateTime,
-    Enum as SAEnum,
     ForeignKey,
     Index,
     Integer,
@@ -28,6 +28,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+)
+from sqlalchemy import (
+    Enum as SAEnum,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -38,16 +41,16 @@ class Base(DeclarativeBase):
 
 
 class Direction(str, enum.Enum):
-    incoming = "incoming"      # from the client
-    outgoing = "outgoing"      # from us (agent or operator)
+    incoming = "incoming"  # from the client
+    outgoing = "outgoing"  # from us (agent or operator)
 
 
 class SendStatus(str, enum.Enum):
     pending = "pending"
     sent = "sent"
-    dry_run = "dry_run"        # composed but deliberately not delivered
+    dry_run = "dry_run"  # composed but deliberately not delivered
     failed = "failed"
-    rejected = "rejected"      # operator declined it in moderation
+    rejected = "rejected"  # operator declined it in moderation
 
 
 class Author(str, enum.Enum):
@@ -70,11 +73,11 @@ class Chat(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     chat_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
-    item_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
+    item_id: Mapped[str | None] = mapped_column(String(128), index=True)
     # Resolved via ItemZoneMap — which listing the client came from decides
     # which zone we talk about.
-    zone_id: Mapped[Optional[str]] = mapped_column(String(64))
-    buyer_name: Mapped[Optional[str]] = mapped_column(String(255))
+    zone_id: Mapped[str | None] = mapped_column(String(64))
+    buyer_name: Mapped[str | None] = mapped_column(String(255))
     state: Mapped[ChatState] = mapped_column(
         SAEnum(ChatState, name="chat_state"), default=ChatState.new
     )
@@ -88,16 +91,12 @@ class Chat(Base):
     # в единственной точке выхода исходящих — app/channels/outbound_gate.py.
     manual_hold: Mapped[bool] = mapped_column(Boolean, default=False)
     agent_reply_count: Mapped[int] = mapped_column(Integer, default=0)
-    takeover_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    last_msg_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    takeover_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_msg_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    messages: Mapped[list["Message"]] = relationship(back_populates="chat")
-    dialog_state: Mapped[Optional["DialogState"]] = relationship(
-        back_populates="chat", uselist=False
-    )
+    messages: Mapped[list[Message]] = relationship(back_populates="chat")
+    dialog_state: Mapped[DialogState | None] = relationship(back_populates="chat", uselist=False)
 
 
 class Message(Base):
@@ -114,23 +113,19 @@ class Message(Base):
         String(128), ForeignKey("chats.chat_id", ondelete="CASCADE"), index=True
     )
     direction: Mapped[Direction] = mapped_column(SAEnum(Direction, name="direction"))
-    author: Mapped[Author] = mapped_column(
-        SAEnum(Author, name="author"), default=Author.client
-    )
-    text: Mapped[Optional[str]] = mapped_column(Text)
-    image_ids: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String))
-    avito_message_id: Mapped[Optional[str]] = mapped_column(String(128))
+    author: Mapped[Author] = mapped_column(SAEnum(Author, name="author"), default=Author.client)
+    text: Mapped[str | None] = mapped_column(Text)
+    image_ids: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    avito_message_id: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[SendStatus] = mapped_column(
         SAEnum(SendStatus, name="send_status"), default=SendStatus.pending
     )
     # {"provider": ..., "model": ..., "input_tokens": ..., "output_tokens": ...,
     #  "cost_rub": ..., "cached_input_tokens": ...}
-    llm_meta: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    llm_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    chat: Mapped["Chat"] = relationship(back_populates="messages")
+    chat: Mapped[Chat] = relationship(back_populates="messages")
 
 
 class DialogState(Base):
@@ -143,11 +138,11 @@ class DialogState(Base):
         String(128), ForeignKey("chats.chat_id", ondelete="CASCADE"), unique=True, index=True
     )
     base_price_quoted: Mapped[bool] = mapped_column(Boolean, default=False)
-    used_tiers: Mapped[Optional[list[int]]] = mapped_column(ARRAY(Integer), default=list)
-    skipped_tiers: Mapped[Optional[list[int]]] = mapped_column(ARRAY(Integer), default=list)
+    used_tiers: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), default=list)
+    skipped_tiers: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), default=list)
     # Numeric, never float — the whole pricing stack is Decimal end to end.
-    floor_reached: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
-    client_constraints: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), default=list)
+    floor_reached: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    client_constraints: Mapped[list[str] | None] = mapped_column(ARRAY(String), default=list)
     concessions_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # --- Отложенные касания (регламент скидок владельца) --------------------
@@ -157,17 +152,17 @@ class DialogState(Base):
     # когда назвали цену, второе и третье — воркером), а не когда оно
     # запланировано.
     touch_count: Mapped[int] = mapped_column(Integer, default=0)
-    last_touch_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_touch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # NULL означает «таймер не тикает» — либо касаний ещё не было, либо
     # клиент только что ответил (см. app.agent.touch_tracking.reset_timer_on_reply),
     # либо лимит touch_max_count уже исчерпан.
-    next_touch_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_touch_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    chat: Mapped["Chat"] = relationship(back_populates="dialog_state")
+    chat: Mapped[Chat] = relationship(back_populates="dialog_state")
 
     def to_runtime(self):
         """Rehydrate into the frozen dataclass the concession engine uses."""
@@ -203,14 +198,14 @@ class ItemZoneMap(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     item_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
-    zone_id: Mapped[Optional[str]] = mapped_column(String(64))
-    category: Mapped[Optional[str]] = mapped_column(String(32))
+    zone_id: Mapped[str | None] = mapped_column(String(64))
+    category: Mapped[str | None] = mapped_column(String(32))
     # Заголовок объявления на Авито — только чтобы оператор в /admin/dialogs
     # видел, откуда пришёл клиент, словами, а не голым числом item_id.
     # Заполняется `python -m scripts.export_listings --seed-map`; ни на одно
     # решение агента не влияет и влиять не должно.
-    title: Mapped[Optional[str]] = mapped_column(String(512))
-    note: Mapped[Optional[str]] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(String(512))
+    note: Mapped[str | None] = mapped_column(Text)
 
 
 class ItemScope(Base):
@@ -237,9 +232,9 @@ class ItemScope(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     item_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
-    title: Mapped[Optional[str]] = mapped_column(String(512))
+    title: Mapped[str | None] = mapped_column(String(512))
     decision: Mapped[str] = mapped_column(String(8))  # "allow" | "deny"
-    reason: Mapped[Optional[str]] = mapped_column(String(64))
+    reason: Mapped[str | None] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -283,12 +278,12 @@ class ChatCursor(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     chat_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     last_message_created: Mapped[int] = mapped_column(BigInteger, default=0)
-    last_message_ids: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), default=list)
+    last_message_ids: Mapped[list[str] | None] = mapped_column(ARRAY(String), default=list)
     # no_messages | not_our_listing — чат не по нашей части ящика.
-    skipped_reason: Mapped[Optional[str]] = mapped_column(String(64))
+    skipped_reason: Mapped[str | None] = mapped_column(String(64))
     # Заголовок и объявление — только чтобы оператор видел в /admin/dialogs,
     # что именно он собирается разбудить, словами, а не голым chat_id.
-    item_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
+    item_id: Mapped[str | None] = mapped_column(String(128), index=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -306,38 +301,34 @@ class ConcessionLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     dialog_id: Mapped[str] = mapped_column(String(128), index=True)
-    zone: Mapped[Optional[str]] = mapped_column(String(64))
-    tier: Mapped[Optional[int]] = mapped_column(Integer)
-    trigger: Mapped[Optional[str]] = mapped_column(String(255))
-    base_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
-    final_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
-    revenue_delta: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
-    revenue_delta_basis: Mapped[Optional[str]] = mapped_column(String(32))
-    exchange_given: Mapped[Optional[str]] = mapped_column(String(64))
+    zone: Mapped[str | None] = mapped_column(String(64))
+    tier: Mapped[int | None] = mapped_column(Integer)
+    trigger: Mapped[str | None] = mapped_column(String(255))
+    base_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    final_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    revenue_delta: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    revenue_delta_basis: Mapped[str | None] = mapped_column(String(32))
+    exchange_given: Mapped[str | None] = mapped_column(String(64))
     allowed: Mapped[bool] = mapped_column(Boolean, default=False)
-    denial_reason: Mapped[Optional[str]] = mapped_column(Text)
+    denial_reason: Mapped[str | None] = mapped_column(Text)
     # True when the grant rested on a threshold WE set provisionally rather
     # than one the client confirmed (question 13.4).
     provisional_policy: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Lead(Base):
     __tablename__ = "leads"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    chat_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
-    name: Mapped[Optional[str]] = mapped_column(String(255))
-    phone: Mapped[Optional[str]] = mapped_column(String(64))
-    zone_id: Mapped[Optional[str]] = mapped_column(String(64))
-    date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    guests: Mapped[Optional[int]] = mapped_column(Integer)
-    notes: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    chat_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(64))
+    zone_id: Mapped[str | None] = mapped_column(String(64))
+    date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    guests: Mapped[int | None] = mapped_column(Integer)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Booking(Base):
@@ -359,21 +350,19 @@ class Booking(Base):
     __tablename__ = "bookings"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    chat_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
-    record_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
-    zone_id: Mapped[Optional[str]] = mapped_column(String(64))
-    booking_date: Mapped[Optional[DateType]] = mapped_column(Date)
-    start_time: Mapped[Optional[str]] = mapped_column(String(8))
-    occupied_hours: Mapped[Optional[int]] = mapped_column(Integer)
-    billable_hours: Mapped[Optional[int]] = mapped_column(Integer)
-    guests: Mapped[Optional[int]] = mapped_column(Integer)
-    total: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
-    client_name: Mapped[Optional[str]] = mapped_column(String(255))
-    client_phone: Mapped[Optional[str]] = mapped_column(String(64))
-    applied_promo: Mapped[Optional[str]] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    chat_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    record_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    zone_id: Mapped[str | None] = mapped_column(String(64))
+    booking_date: Mapped[DateType | None] = mapped_column(Date)
+    start_time: Mapped[str | None] = mapped_column(String(8))
+    occupied_hours: Mapped[int | None] = mapped_column(Integer)
+    billable_hours: Mapped[int | None] = mapped_column(Integer)
+    guests: Mapped[int | None] = mapped_column(Integer)
+    total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    client_name: Mapped[str | None] = mapped_column(String(255))
+    client_phone: Mapped[str | None] = mapped_column(String(64))
+    applied_promo: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class PendingReplyRow(Base):
@@ -400,7 +389,7 @@ class PendingReplyRow(Base):
     # модерации живут в app/ops/state.py и меняются чаще, чем стоит платить
     # миграцией за каждое новое значение.
     status: Mapped[str] = mapped_column(String(32), default="pending")
-    decided_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    decided_by: Mapped[int | None] = mapped_column(BigInteger)
     # --- Модерация ценовых уступок (MODERATION_MODE=concessions_only) ----
     # is_concession: этот pending — запрос на скидку, а не обычный
     # DRY_RUN-холд. У него есть дедлайн (due_at); просроченный воркер
@@ -408,11 +397,9 @@ class PendingReplyRow(Base):
     # клиенту fallback_text — предпосчитанный ответ БЕЗ скидки — вместо
     # того, чтобы держать диалог в тишине, пока оператор не освободится.
     is_concession: Mapped[bool] = mapped_column(Boolean, default=False)
-    fallback_text: Mapped[Optional[str]] = mapped_column(Text)
-    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    fallback_text: Mapped[str | None] = mapped_column(Text)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class CatalogOverride(Base):
@@ -448,18 +435,16 @@ class CatalogOverride(Base):
     # «было X, станет Y». Источник истины для отката — не это поле, а
     # отсутствие строки: откат помечает reverted_at, и предыдущая правка
     # того же пути (или сам YAML) снова становится действующей.
-    previous_value: Mapped[Optional[Any]] = mapped_column(JSONB)
+    previous_value: Mapped[Any | None] = mapped_column(JSONB)
     # Ключ поля из app/kb/editable.py — чтобы журнал показывал «Выходные,
     # ₽/час», а не только путь.
-    field_key: Mapped[Optional[str]] = mapped_column(String(64))
-    zone_id: Mapped[Optional[str]] = mapped_column(String(64))
+    field_key: Mapped[str | None] = mapped_column(String(64))
+    zone_id: Mapped[str | None] = mapped_column(String(64))
     changed_by: Mapped[int] = mapped_column(BigInteger)
-    comment: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    reverted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    reverted_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    comment: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reverted_by: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class OperatorAction(Base):
@@ -468,10 +453,8 @@ class OperatorAction(Base):
     __tablename__ = "operator_actions"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    chat_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
+    chat_id: Mapped[str | None] = mapped_column(String(128), index=True)
     telegram_user_id: Mapped[int] = mapped_column(BigInteger)
     action: Mapped[str] = mapped_column(String(64))
-    payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

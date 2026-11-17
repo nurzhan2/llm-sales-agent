@@ -83,11 +83,11 @@ def redact_client_name(text: str, client_name: str, label: str) -> str:
 
 
 def anonymize_dialogs_json(data: list[dict]) -> tuple[list[dict], dict[str, str]]:
-    labels: dict[str, str] = {}   # оригинальное имя -> «Клиент N»
+    labels: dict[str, str] = {}  # оригинальное имя -> «Клиент N»
     counter = 0
     out = []
     for dialog in data:
-        dialog = json.loads(json.dumps(dialog))   # глубокая копия
+        dialog = json.loads(json.dumps(dialog))  # глубокая копия
         client_name = dialog.get("client_name")
         if client_name:
             if client_name not in labels:
@@ -117,7 +117,7 @@ def anonymize_real_dialogs_md(text: str, dialogs: list[dict], labels: dict[str, 
         )
 
     out_segments = []
-    for dialog, segment in zip(dialogs, segments):
+    for dialog, segment in zip(dialogs, segments, strict=False):
         client_name = dialog.get("client_name")
         if client_name and client_name in labels:
             segment = redact_client_name(segment, client_name, labels[client_name])
@@ -139,7 +139,9 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--check", action="store_true", help="только проверить, ничего не менять")
     args = parser.parse_args()
 

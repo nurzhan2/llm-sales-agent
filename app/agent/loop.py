@@ -21,11 +21,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date as date_cls
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Optional, Sequence
+from typing import Any
 
 from app.agent.listing_context import (
     ItemZoneLookup,
@@ -122,7 +123,9 @@ def normalize_tool_use(block: Any, index: int = 0) -> tuple[str, dict, str]:
     return name, arguments, block_id
 
 
-def sanitized_assistant_content(content: Sequence[Any], calls: list[tuple[str, dict, str]]) -> list[Any]:
+def sanitized_assistant_content(
+    content: Sequence[Any], calls: list[tuple[str, dict, str]]
+) -> list[Any]:
     """Ответ модели, пригодный к отправке ОБРАТНО провайдеру.
 
     ЗАЧЕМ. Мы обязаны вернуть провайдеру его же ответ (`assistant`), а следом
@@ -142,13 +145,16 @@ def sanitized_assistant_content(content: Sequence[Any], calls: list[tuple[str, d
             normalized.append(block)
             continue
         name, arguments, block_id = next(pending)
-        normalized.append({
-            "type": "tool_use",
-            "id": block_id,
-            "name": name or WIRE_UNKNOWN_TOOL,
-            "input": arguments,
-        })
+        normalized.append(
+            {
+                "type": "tool_use",
+                "id": block_id,
+                "name": name or WIRE_UNKNOWN_TOOL,
+                "input": arguments,
+            }
+        )
     return normalized
+
 
 MAX_TOOL_ITERATIONS = 5
 MAX_TOKENS = 1024
@@ -198,9 +204,12 @@ PRICE_PER_MTOK_RUB: dict[str, tuple[Decimal, Decimal]] = {
 # Денежной единицы рядом с числом нет — значит, это не сумма.
 _MONEY_UNIT = r"(?:₽|руб\w*|р\.|р\b|тыс\w*|т\.?\s?р\.?)"
 PRICE_LIKE_WITHOUT_TOOL_CALL = re.compile(
-    r"\b\d[\d\u00a0 ]*(?:[.,]\d{1,2})?\s*" + _MONEY_UNIT
+    r"\b\d[\d\u00a0 ]*(?:[.,]\d{1,2})?\s*"
+    + _MONEY_UNIT
     # Нижняя граница вилки: числа с единицей при ней нет, единица — у верхней.
-    + r"|\b\d[\d\u00a0 ]*(?=\s*(?:-|—|–|до)\s*\d[\d\u00a0 ]*\s*" + _MONEY_UNIT + r")",
+    + r"|\b\d[\d\u00a0 ]*(?=\s*(?:-|—|–|до)\s*\d[\d\u00a0 ]*\s*"
+    + _MONEY_UNIT
+    + r")",
     re.IGNORECASE,
 )
 # «14 тыс.» — это 14000, а не 14. Без приведения честная цена из расчёта
@@ -257,7 +266,7 @@ def amounts_in_payload(value: Any) -> set[str]:
         for item in value:
             found |= amounts_in_payload(item)
     elif isinstance(value, bool):
-        pass                      # bool — подкласс int, числом здесь не считается
+        pass  # bool — подкласс int, числом здесь не считается
     elif isinstance(value, (int, float, Decimal)):
         found.add(_canonical_amount(str(value)))
     elif isinstance(value, str):
@@ -301,10 +310,13 @@ def money_in_text(text: str) -> list[tuple[str, str]]:
 
 def concession_given(state: Any) -> bool:
     """Была ли в диалоге уступка — выданная ступень или достигнутый пол цены."""
-    return bool(getattr(state, "used_tiers", None)) or getattr(state, "floor_reached", None) is not None
+    return (
+        bool(getattr(state, "used_tiers", None))
+        or getattr(state, "floor_reached", None) is not None
+    )
 
 
-def amounts_sent_before(history: Optional[list[dict]], state: Any) -> set[str]:
+def amounts_sent_before(history: list[dict] | None, state: Any) -> set[str]:
     """Суммы, которые агент уже отправлял в этом чате, — их можно повторить.
 
     ЗАЧЕМ. Замер 2026-09-18 (scripts/probe_confirmations.py): клиент пишет
@@ -386,9 +398,7 @@ PROMISE_GUARD_VIOLATION = (
     "обещание вернуться или перезвонить (последний рубеж): агент первым не пишет"
 )
 
-AMOUNT_MISMATCH_VIOLATION = (
-    "сумма в тексте не из ответа инструмента (последний рубеж)"
-)
+AMOUNT_MISMATCH_VIOLATION = "сумма в тексте не из ответа инструмента (последний рубеж)"
 
 # ВТОРОЙ ПОСЛЕДНИЙ РУБЕЖ: занятость и даты. Заведён по инциденту запуска
 # 2026-09-01.
@@ -564,6 +574,7 @@ def _nearest_is_not_about_our_calendar(right: str) -> bool:
     end = _SENTENCE_END.search(right)
     return end is not None and end.group() == "?"
 
+
 # Сколько символов между глаголом и словом занятости считаем одной фразой.
 # «уточню свободное время» — 7; «посмотрю по календарю свободное» — 22.
 #
@@ -602,8 +613,8 @@ def _promises_to_check(left: str) -> bool:
         return False
     verb = matches[-1].group()
     if not _PAST_FORM.search(verb):
-        return True                      # «уточню», «проверить», «уточните»
-    return bool(_PURPOSE.search(left))    # «чтобы я проверила» — ещё не сделано
+        return True  # «уточню», «проверить», «уточните»
+    return bool(_PURPOSE.search(left))  # «чтобы я проверила» — ещё не сделано
 
 
 def availability_claim(text: str) -> bool:
@@ -617,13 +628,13 @@ def availability_claim(text: str) -> bool:
     """
     text = text or ""
     for m in AVAILABILITY_WORDS.finditer(text):
-        left = text[max(0, m.start() - _PROMISE_WINDOW):m.start()]
+        left = text[max(0, m.start() - _PROMISE_WINDOW) : m.start()]
         # Справа смотрим до конца предложения: вопросительный знак у
         # «ближайшего» стоит в его конце, а не через пару слов.
-        right = text[m.end():m.end() + 120]
+        right = text[m.end() : m.end() + 120]
         if _promises_to_check(left):
             continue
-        if _under_a_condition(text[max(0, m.start() - _CONDITION_WINDOW):m.start()]):
+        if _under_a_condition(text[max(0, m.start() - _CONDITION_WINDOW) : m.start()]):
             continue
         if m.group().lower().startswith("свободно") and _FREELY_AS_MANNER.match(right):
             continue
@@ -634,9 +645,20 @@ def availability_claim(text: str) -> bool:
         return True
     return False
 
+
 _MONTHS_RU = {
-    "январ": 1, "феврал": 2, "март": 3, "апрел": 4, "ма": 5, "июн": 6,
-    "июл": 7, "август": 8, "сентябр": 9, "октябр": 10, "ноябр": 11, "декабр": 12,
+    "январ": 1,
+    "феврал": 2,
+    "март": 3,
+    "апрел": 4,
+    "ма": 5,
+    "июн": 6,
+    "июл": 7,
+    "август": 8,
+    "сентябр": 9,
+    "октябр": 10,
+    "ноябр": 11,
+    "декабр": 12,
 }
 # «сегодня»/«завтра»/«послезавтра» -> сдвиг в днях от сегодняшнего.
 _RELATIVE_DAYS = {"сегодня": 0, "завтра": 1, "послезавтра": 2}
@@ -668,7 +690,7 @@ def _dates_in(text: str) -> list[tuple[int, int, int]]:
     return found
 
 
-def date_contradicts_now(text: str, now: datetime) -> Optional[str]:
+def date_contradicts_now(text: str, now: datetime) -> str | None:
     """«завтра, 1 сентября» в день, когда 1 сентября — сегодня.
 
     Сверяем не факт вызова инструмента, а само число: обе даты модели уже
@@ -695,15 +717,17 @@ def date_contradicts_now(text: str, now: datetime) -> Optional[str]:
         # «сегодня» с каждой датой окна, натыкалась на 20 июня и рубила
         # правильный текст. Расшифровывает относительное слово всегда
         # соседнее число; всё, что дальше, — уже про другое.
-        near = [(abs(pos - m.start()), pos, day, month) for pos, day, month in dates
-                if abs(pos - m.start()) <= _PAIRING_WINDOW]
+        near = [
+            (abs(pos - m.start()), pos, day, month)
+            for pos, day, month in dates
+            if abs(pos - m.start()) <= _PAIRING_WINDOW
+        ]
         if not near:
             continue
         _, _, day, month = min(near)
         if (day, month) != (expected.day, expected.month):
             return (
-                f"«{word}» рядом с {day:02d}.{month:02d}, "
-                f"а {word} — {expected.strftime('%d.%m')}"
+                f"«{word}» рядом с {day:02d}.{month:02d}, а {word} — {expected.strftime('%d.%m')}"
             )
     return None
 
@@ -711,18 +735,22 @@ def date_contradicts_now(text: str, now: datetime) -> Optional[str]:
 # День недели в тексте ответа -> его номер (пн=0). Формы — те, что реально
 # пишет модель: «суббота», «в субботу», «субботы», «(воскресенье)».
 _WEEKDAY_FORMS = {
-    "понедельник": 0, "вторник": 1, "сред": 2, "четверг": 3,
-    "пятниц": 4, "суббот": 5, "воскресень": 6,
+    "понедельник": 0,
+    "вторник": 1,
+    "сред": 2,
+    "четверг": 3,
+    "пятниц": 4,
+    "суббот": 5,
+    "воскресень": 6,
 }
 _WEEKDAY_RE = re.compile(
     r"\b(понедельник|вторник|сред(?=[аыуе]\b)|четверг|пятниц|суббот|воскресень)\w*",
     re.IGNORECASE,
 )
-_WEEKDAY_NAMES = ("понедельник", "вторник", "среда", "четверг", "пятница",
-                  "суббота", "воскресенье")
+_WEEKDAY_NAMES = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 
 
-def weekday_contradicts_date(text: str, now: datetime) -> Optional[str]:
+def weekday_contradicts_date(text: str, now: datetime) -> str | None:
     """«20 сентября — суббота», когда 20 сентября 2026 — воскресенье.
 
     Прод-замер 2026-09-18: модель назвала 20 сентября субботой. День недели
@@ -764,11 +792,16 @@ def weekday_contradicts_date(text: str, now: datetime) -> Optional[str]:
     # это перечисление правила. То же с диапазоном «с пятницы по
     # воскресенье, 18–20 сентября». У даты же день недели один, и он — самый
     # близкий к ней.
-    weekdays = [(m.start(), m.group(0), _WEEKDAY_FORMS[m.group(1).lower()])
-                for m in _WEEKDAY_RE.finditer(text)]
+    weekdays = [
+        (m.start(), m.group(0), _WEEKDAY_FORMS[m.group(1).lower()])
+        for m in _WEEKDAY_RE.finditer(text)
+    ]
     for pos, anchor in anchors:
-        near = [(abs(w_pos - pos), word, said) for w_pos, word, said in weekdays
-                if abs(w_pos - pos) <= _PAIRING_WINDOW]
+        near = [
+            (abs(w_pos - pos), word, said)
+            for w_pos, word, said in weekdays
+            if abs(w_pos - pos) <= _PAIRING_WINDOW
+        ]
         if not near:
             continue
         _, word, said = min(near, key=lambda item: item[0])
@@ -780,9 +813,7 @@ def weekday_contradicts_date(text: str, now: datetime) -> Optional[str]:
     return None
 
 
-QUESTION_GUARD_VIOLATION = (
-    "больше одного вопроса в ответе (последний рубеж) — лишние обрезаны"
-)
+QUESTION_GUARD_VIOLATION = "больше одного вопроса в ответе (последний рубеж) — лишние обрезаны"
 AVAILABILITY_GUARD_VIOLATION = (
     "занятость без вызова check_availability/find_next_available (последний рубеж)"
 )
@@ -817,8 +848,7 @@ DATE_GUARD_VIOLATION = "дата в тексте противоречит бло
 AVAILABILITY_GUARD_LADDER: dict[str, tuple[str, str]] = {
     "date": (
         "Подскажите, пожалуйста, на какое число планируете отдых?",
-        "Чтобы посмотреть по календарю, мне нужно точное число — напишите "
-        "его, пожалуйста.",
+        "Чтобы посмотреть по календарю, мне нужно точное число — напишите его, пожалуйста.",
     ),
     "zone": (
         "Подскажите, пожалуйста, какая зона вас интересует?",
@@ -832,13 +862,11 @@ AVAILABILITY_GUARD_LADDER: dict[str, tuple[str, str]] = {
     ),
     "start_time": (
         "Подскажите, пожалуйста, со скольки планируете начать?",
-        "Чтобы посмотреть по календарю, мне нужно время начала — напишите "
-        "его, пожалуйста.",
+        "Чтобы посмотреть по календарю, мне нужно время начала — напишите его, пожалуйста.",
     ),
     "guests": (
         "Подскажите, пожалуйста, сколько вас будет?",
-        "Чтобы посмотреть по календарю, мне нужно количество гостей — "
-        "напишите, пожалуйста.",
+        "Чтобы посмотреть по календарю, мне нужно количество гостей — напишите, пожалуйста.",
     ),
 }
 # Лестница по умолчанию — когда слоты не переданы (вызов без разбора
@@ -853,8 +881,7 @@ AVAILABILITY_GUARD_HANDOFF = (
     "Напишите, если нужно что-то ещё."
 )
 AVAILABILITY_GUARD_HANDOFF_REASON = (
-    "последний рубеж сработал третий раз подряд — модель не может ответить "
-    "по датам и занятости"
+    "последний рубеж сработал третий раз подряд — модель не может ответить по датам и занятости"
 )
 # Отбивка ценового рубежа, рубежа суммы и упора в лимит витков. Один текст на
 # три случая: с точки зрения клиента они неразличимы — агент не ответил и
@@ -867,8 +894,7 @@ AVAILABILITY_GUARD_HANDOFF_REASON = (
 # оставляет ход клиенту.
 HANDED_TO_MANAGER = "Передала вопрос менеджеру — напишите, если нужно что-то ещё."
 GUARD_RAIL_FALLBACK = (
-    "Это уточняет менеджер — я передала ему вопрос. "
-    "Напишите, если нужно что-то ещё."
+    "Это уточняет менеджер — я передала ему вопрос. Напишите, если нужно что-то ещё."
 )
 
 # ВСЕ подстановки разом. Отбивка входит сюда наравне с лестницей, и это не
@@ -883,10 +909,9 @@ GUARD_RAIL_FALLBACK = (
 # месте — то есть лестница начиналась бы заново, а клиент получал бы первый
 # вопрос второй раз. Ровно та ошибка, что уже была с отбивкой ценового
 # рубежа (см. комментарий выше).
-_GUARD_TEXTS = (
-    frozenset(text for ladder in AVAILABILITY_GUARD_LADDER.values() for text in ladder)
-    | {AVAILABILITY_GUARD_HANDOFF, GUARD_RAIL_FALLBACK, HANDED_TO_MANAGER}
-)
+_GUARD_TEXTS = frozenset(
+    text for ladder in AVAILABILITY_GUARD_LADDER.values() for text in ladder
+) | {AVAILABILITY_GUARD_HANDOFF, GUARD_RAIL_FALLBACK, HANDED_TO_MANAGER}
 
 
 # ЯВНАЯ ПРОСЬБА О ЧЕЛОВЕКЕ ИЛИ ЖАЛОБА — единственное, что даёт метке human
@@ -923,7 +948,7 @@ def asks_for_a_human(client_text: str) -> bool:
     return bool(HUMAN_REQUEST.search(client_text or ""))
 
 
-def escalation_topic_in(client_text: str, kb: Any) -> Optional[str]:
+def escalation_topic_in(client_text: str, kb: Any) -> str | None:
     """Тема из `escalation_topics`, если она есть в сообщении КЛИЕНТА.
 
     ЗАЧЕМ ЭТО В КОДЕ. Блок `escalation_topics` в app/kb/catalog.yaml лежал с
@@ -954,8 +979,7 @@ def escalation_topic_in(client_text: str, kb: Any) -> Optional[str]:
                     return str(topic.get("trigger") or topic_id)
             except re.error:
                 # Кривой шаблон в базе знаний не должен ронять ход клиента.
-                logger.warning("escalation_topics: не разобрать match у темы %r",
-                               topic_id)
+                logger.warning("escalation_topics: не разобрать match у темы %r", topic_id)
     return None
 
 
@@ -1002,7 +1026,7 @@ def guard_substitution(repeats: int, slots: Any = None) -> tuple[str, bool]:
     return "", True
 
 
-def not_a_verbatim_repeat(text: str, history: Optional[list[dict]]) -> str:
+def not_a_verbatim_repeat(text: str, history: list[dict] | None) -> str:
     """`text`, но не второй раз подряд — иначе пустая строка.
 
     Для рубежей БЕЗ лестницы (ценовой, суммы, лимит витков): у них один
@@ -1016,7 +1040,7 @@ def not_a_verbatim_repeat(text: str, history: Optional[list[dict]]) -> str:
     return text
 
 
-def guard_repeats(history: Optional[list[dict]]) -> int:
+def guard_repeats(history: list[dict] | None) -> int:
     """Сколько раз подряд рубеж уже подставлял ответ в конце этого диалога.
 
     Считаем по истории, а не по отдельному счётчику в БД: подстановки и так
@@ -1041,8 +1065,8 @@ def guard_repeats(history: Optional[list[dict]]) -> int:
 class TurnResult:
     text: str
     escalated: bool = False
-    escalation_reason: Optional[str] = None
-    classification: Optional[str] = None
+    escalation_reason: str | None = None
+    classification: str | None = None
     tool_calls: list[str] = field(default_factory=list)
     quote_statuses: list[str] = field(default_factory=list)
     # Числа из ответов инструментов за этот ход. Наружу они нужны харнессу
@@ -1101,9 +1125,7 @@ def estimate_cost_rub(model: str, input_tokens: int, output_tokens: int) -> Deci
         return Decimal("0")
     per_in, per_out = rates
     million = Decimal("1000000")
-    cost = (Decimal(input_tokens) / million) * per_in + (
-        Decimal(output_tokens) / million
-    ) * per_out
+    cost = (Decimal(input_tokens) / million) * per_in + (Decimal(output_tokens) / million) * per_out
     return cost.quantize(Decimal("0.01"))
 
 
@@ -1118,20 +1140,20 @@ def _text_from_blocks(blocks: Sequence[Any]) -> str:
 class AgentLoop:
     def __init__(
         self,
-        client: Any,                       # LLMProvider, anthropic.AsyncAnthropic или мок
+        client: Any,  # LLMProvider, anthropic.AsyncAnthropic или мок
         kb: KnowledgeBase,
         executor_factory: Any = None,
         dialog_model: str = MAIN_MODEL,
         classifier_model: str = CLASSIFIER_MODEL,
-        booking_provider: Any = None,       # BookingProvider — YClientsProvider или None
-        photo_provider: Any = None,         # .get(zone_id) -> list[image_id], см. app/media/photos.py
+        booking_provider: Any = None,  # BookingProvider — YClientsProvider или None
+        photo_provider: Any = None,  # .get(zone_id) -> list[image_id], см. app/media/photos.py
         # async (chat_id) -> Iterable[image_id] — что уже отправлено в чат, чтобы
         # «а ещё фото?» давало следующие кадры, а не те же (app/dialog_store.py:
         # sent_image_ids).
         sent_photos_lookup: Any = None,
-        concessions_today_provider: Any = None,   # async () -> int, R10 дневной лимит
-        booking_sink: Any = None,           # .save(**record) — запись брони в нашу БД
-        booking_notifier: Any = None,       # async (record) -> None — уведомление оператору
+        concessions_today_provider: Any = None,  # async () -> int, R10 дневной лимит
+        booking_sink: Any = None,  # .save(**record) — запись брони в нашу БД
+        booking_notifier: Any = None,  # async (record) -> None — уведомление оператору
         # async (card) -> None — карточка «поставьте бронь руками» на этапе
         # оплаты (payment.handoff_on_payment_step). Не то же самое, что
         # booking_notifier: там бронь уже стоит, здесь её ещё нет.
@@ -1169,7 +1191,10 @@ class AgentLoop:
         # параметром правка молча не влияла бы на расчёт до рестарта.
         self.executor_factory = executor_factory or (
             lambda dialog_id, state, concessions_blocked=False: ToolExecutor(
-                self.kb, dialog_id, state, booking_provider=booking_provider,
+                self.kb,
+                dialog_id,
+                state,
+                booking_provider=booking_provider,
                 photo_provider=photo_provider,
                 concessions_blocked=concessions_blocked,
                 concessions_today_provider=concessions_today_provider,
@@ -1194,10 +1219,7 @@ class AgentLoop:
         """
         content = text
         if previous_agent_text:
-            content = (
-                f"Администратор: {previous_agent_text[:500]}\n"
-                f"Клиент: {text}"
-            )
+            content = f"Администратор: {previous_agent_text[:500]}\nКлиент: {text}"
         response = await self.provider.complete(
             model=self.classifier_model,
             max_tokens=8,
@@ -1215,13 +1237,16 @@ class AgentLoop:
         history: list[dict],
         user_text: str,
         state: Any = None,
-        item_id: Optional[str] = None,
-        item_lookup: Optional[ItemZoneLookup] = None,
+        item_id: str | None = None,
+        item_lookup: ItemZoneLookup | None = None,
         concessions_blocked: bool = False,
     ) -> TurnResult:
         previous_agent_text = next(
-            (m.get("content") or "" for m in reversed(history or [])
-             if m.get("role") == "assistant" and isinstance(m.get("content"), str)),
+            (
+                m.get("content") or ""
+                for m in reversed(history or [])
+                if m.get("role") == "assistant" and isinstance(m.get("content"), str)
+            ),
             "",
         )
         classification = await self.classify(user_text, previous_agent_text)
@@ -1237,8 +1262,7 @@ class AgentLoop:
             # ошибка в эту сторону стоит одного хода, а в обратную — клиента.
             guard_rails_total.labels(rule=HUMAN_LABEL_VETO).inc()
             logger.warning(
-                "классификатор сказал human без явной просьбы о человеке — "
-                "ход идёт обычным путём",
+                "классификатор сказал human без явной просьбы о человеке — ход идёт обычным путём",
                 extra={"dialog_id": dialog_id, "client_text": user_text[:200]},
             )
             classification = "question"
@@ -1282,9 +1306,7 @@ class AgentLoop:
             resolution = await resolve_listing(item_id, item_lookup, self.kb)
             hint = build_listing_hint(resolution, self.kb)
             if getattr(resolution, "status", "") == "resolved" and resolution.zone_id:
-                zone = next(
-                    (z for z in self.kb.catalog.zones if z.id == resolution.zone_id), None
-                )
+                zone = next((z for z in self.kb.catalog.zones if z.id == resolution.zone_id), None)
                 listing_zone = zone.name if zone is not None else ""
                 executor.listing_zone_id = resolution.zone_id if zone is not None else ""
             if hint:
@@ -1304,9 +1326,7 @@ class AgentLoop:
         # Слоты считаются по ВСЕЙ переданной истории, а не по окну запроса:
         # окно режет то, что уедет модели, но «клиент назвал дату» —
         # утверждение про диалог целиком.
-        slots = extract_slots(
-            history, user_text, listing_zone=listing_zone, today=now.date()
-        )
+        slots = extract_slots(history, user_text, listing_zone=listing_zone, today=now.date())
         # Альтернативы при «занято» отбираются по вместимости только по
         # числу гостей, названному КЛИЕНТОМ, — не по догадке модели
         # (живой случай 2026-09-23, см. ToolExecutor.known_guests).
@@ -1351,15 +1371,15 @@ class AgentLoop:
         # условие выполнялось бы всегда начиная со второго хода — то есть не
         # значило бы ничего.
         forcing_context = "\n".join(
-            [m.get("content") or "" for m in history[-HISTORY_WINDOW:]
-             if m.get("role") == "user"]
+            [m.get("content") or "" for m in history[-HISTORY_WINDOW:] if m.get("role") == "user"]
             + ([listing_zone] if listing_zone else [])
         )
         forced_tool = forced_tool_for(user_text, forcing_context)
         if forced_tool:
             logger.info(
                 "tool_choice: принуждаю %s по сообщению клиента",
-                forced_tool, extra={"dialog_id": dialog_id, "tool": forced_tool},
+                forced_tool,
+                extra={"dialog_id": dialog_id, "tool": forced_tool},
             )
 
         for iteration in range(MAX_TOOL_ITERATIONS):
@@ -1397,13 +1417,15 @@ class AgentLoop:
             # Нормализация ДО того, как ответ уедет обратно провайдеру:
             # см. sanitized_assistant_content.
             calls = [normalize_tool_use(b, i) for i, b in enumerate(tool_uses)]
-            messages.append({
-                "role": "assistant",
-                "content": sanitized_assistant_content(response.content, calls),
-            })
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": sanitized_assistant_content(response.content, calls),
+                }
+            )
 
             results = []
-            for block, (name, arguments, block_id) in zip(tool_uses, calls):
+            for _block, (name, arguments, block_id) in zip(tool_uses, calls, strict=False):
                 # МУСОР ОТ СЛОЯ СОВМЕСТИМОСТИ. DeepSeek 2026-09-02 вернул
                 # блок tool_use с именем "tool_calls" — такого инструмента мы
                 # не объявляли. Ход из-за этого не падает и раньше:
@@ -1496,7 +1518,8 @@ class AgentLoop:
         # дословный повтор уже названной суммы (см. repeatable выше): тогда
         # «цены без инструмента» нет, есть цена из прошлого ответа.
         if (
-            not tool_calls and final_text
+            not tool_calls
+            and final_text
             and PRICE_LIKE_WITHOUT_TOOL_CALL.search(final_text)
             and invented_amounts(final_text, repeatable)
         ):
@@ -1521,8 +1544,11 @@ class AgentLoop:
                 # сохраняется в llm_meta», а по срабатываниям ЦЕНОВОГО рубежа
                 # в отчётах было пусто: разобрать, что именно он зарубил,
                 # было нечем.
-                llm_meta={**llm_meta, "guard_rail": GUARD_RAIL_VIOLATION,
-                          "withheld_text": final_text},
+                llm_meta={
+                    **llm_meta,
+                    "guard_rail": GUARD_RAIL_VIOLATION,
+                    "withheld_text": final_text,
+                },
                 tool_call_errors=tool_call_errors,
                 concession_state=getattr(executor, "state", None),
                 concession_events=getattr(executor, "concession_events", []),
@@ -1535,7 +1561,8 @@ class AgentLoop:
             if invented:
                 logger.error(
                     "guard rail: %s — %s",
-                    AMOUNT_MISMATCH_VIOLATION, ", ".join(invented),
+                    AMOUNT_MISMATCH_VIOLATION,
+                    ", ".join(invented),
                     extra={
                         "dialog_id": dialog_id,
                         "provider": self.provider.name,
@@ -1555,9 +1582,12 @@ class AgentLoop:
                     tool_amounts=allowed_amounts,
                     granted_offer_templates=list(executor.granted_offer_templates),
                     hit_iteration_limit=hit_limit,
-                    llm_meta={**llm_meta, "guard_rail": AMOUNT_MISMATCH_VIOLATION,
-                              "invented_amounts": invented,
-                              "withheld_text": final_text},
+                    llm_meta={
+                        **llm_meta,
+                        "guard_rail": AMOUNT_MISMATCH_VIOLATION,
+                        "invented_amounts": invented,
+                        "withheld_text": final_text,
+                    },
                     tool_call_errors=tool_call_errors,
                     concession_state=getattr(executor, "state", None),
                     concession_events=getattr(executor, "concession_events", []),
@@ -1583,14 +1613,13 @@ class AgentLoop:
             logger.warning(
                 "escalation topic %r в сообщении клиента, а модель не "
                 "эскалировала — ставим эскалацию кодом",
-                topic, extra={"dialog_id": dialog_id},
+                topic,
+                extra={"dialog_id": dialog_id},
             )
             executor.escalated = True
-            executor.escalation_reason = (
-                f"тема решается заказчиком лично: {topic}"
-            )
+            executor.escalation_reason = f"тема решается заказчиком лично: {topic}"
 
-        guard_reason: Optional[str] = None
+        guard_reason: str | None = None
         if final_text and SELF_DISCLOSURE.search(final_text):
             # Первым: рассказ о собственном устройстве — не про календарь и
             # не про деньги, остальные рубежи его не видят.
@@ -1603,17 +1632,14 @@ class AgentLoop:
             # `availability_claim`, а НЕ просто поиск слова: «уточню свободное
             # время» — обещание проверить, а не факт о календаре. Разбор — у
             # PROMISE_VERBS выше.
-            if availability_claim(final_text) and not AVAILABILITY_TOOLS.intersection(
-                tool_calls
-            ):
+            if availability_claim(final_text) and not AVAILABILITY_TOOLS.intersection(tool_calls):
                 guard_reason = AVAILABILITY_GUARD_VIOLATION
             else:
                 # День недели — тем же рубежом и с той же лестницей, что и
                 # неверная дата: для клиента это одна и та же ошибка («приеду
                 # не в тот день»), и разводить их на два поведения незачем.
-                mismatch = (
-                    date_contradicts_now(final_text, now)
-                    or weekday_contradicts_date(final_text, now)
+                mismatch = date_contradicts_now(final_text, now) or weekday_contradicts_date(
+                    final_text, now
                 )
                 if mismatch:
                     guard_reason = f"{DATE_GUARD_VIOLATION}: {mismatch}"
@@ -1628,7 +1654,8 @@ class AgentLoop:
             guard_rails_total.labels(rule=guard_reason.split(":")[0]).inc()
             logger.error(
                 "guard rail: %s (подряд %d)%s",
-                guard_reason, repeats + 1,
+                guard_reason,
+                repeats + 1,
                 " — передаю оператору" if escalate else "",
                 extra={
                     "dialog_id": dialog_id,
@@ -1645,8 +1672,7 @@ class AgentLoop:
                 # оператора в диспетчера.
                 escalated=escalate or executor.escalated,
                 escalation_reason=(
-                    AVAILABILITY_GUARD_HANDOFF_REASON if escalate
-                    else executor.escalation_reason
+                    AVAILABILITY_GUARD_HANDOFF_REASON if escalate else executor.escalation_reason
                 ),
                 classification=classification,
                 tool_calls=tool_calls,
@@ -1654,9 +1680,12 @@ class AgentLoop:
                 tool_amounts=allowed_amounts,
                 granted_offer_templates=list(executor.granted_offer_templates),
                 hit_iteration_limit=hit_limit,
-                llm_meta={**llm_meta, "guard_rail": guard_reason,
-                          "guard_repeats": repeats + 1,
-                          "withheld_text": final_text},
+                llm_meta={
+                    **llm_meta,
+                    "guard_rail": guard_reason,
+                    "guard_repeats": repeats + 1,
+                    "withheld_text": final_text,
+                },
                 tool_call_errors=tool_call_errors,
                 concession_state=getattr(executor, "state", None),
                 concession_events=getattr(executor, "concession_events", []),
@@ -1699,7 +1728,10 @@ class AgentLoop:
             from app.agent.closing import ensure_next_step
 
             final_text, added = ensure_next_step(
-                final_text, user_text, slots, priced="ok" in quote_statuses,
+                final_text,
+                user_text,
+                slots,
+                priced="ok" in quote_statuses,
             )
             if added:
                 guard_rails_total.labels(rule="next_step").inc()
@@ -1710,7 +1742,8 @@ class AgentLoop:
             guard_rails_total.labels(rule=QUESTION_GUARD_VIOLATION).inc()
             logger.error(
                 "guard rail: %s — в ответе было %d вопросов",
-                QUESTION_GUARD_VIOLATION, count_questions(final_text),
+                QUESTION_GUARD_VIOLATION,
+                count_questions(final_text),
                 extra={
                     "dialog_id": dialog_id,
                     "provider": self.provider.name,

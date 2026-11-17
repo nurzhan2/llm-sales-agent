@@ -31,7 +31,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("parmangal.dedup")
 
@@ -46,7 +46,7 @@ SEEN_KEY = "avito:seen_message:{message_id}"
 PROVISIONAL_TTL_SECONDS = 60
 
 
-async def claim(message_id: Optional[str], redis: Any) -> bool:
+async def claim(message_id: str | None, redis: Any) -> bool:
     """True — сообщение наше, обрабатываем. False — его уже взяли.
 
     Атомарность даёт SET NX: два воркера, получившие один и тот же ретрай (или
@@ -70,7 +70,7 @@ async def claim(message_id: Optional[str], redis: Any) -> bool:
     return bool(was_set)
 
 
-async def confirm(message_id: Optional[str], redis: Any, ttl_seconds: int) -> None:
+async def confirm(message_id: str | None, redis: Any, ttl_seconds: int) -> None:
     """Сообщение принято — продлить заявку на полный срок.
 
     Без NX: ключ уже наш, и его надо ПЕРЕЗАПИСАТЬ с длинным сроком, а не
@@ -81,7 +81,7 @@ async def confirm(message_id: Optional[str], redis: Any, ttl_seconds: int) -> No
     await redis.set(SEEN_KEY.format(message_id=message_id), "1", ex=ttl_seconds)
 
 
-async def release(message_id: Optional[str], redis: Any) -> None:
+async def release(message_id: str | None, redis: Any) -> None:
     """Обработка не состоялась — снять заявку, чтобы сообщение вернулось.
 
     Ошибка снятия глотается намеренно: она означает лишь, что сообщение

@@ -45,6 +45,7 @@ class BrokenRedis:
 # Базовое поведение
 # --------------------------------------------------------------------------
 
+
 async def test_off_by_default():
     redis = FakeRedis()
     assert await kill_switch.is_stopped(redis) is False
@@ -84,6 +85,7 @@ async def test_status_when_not_stopped():
 # Fail closed — сбой Redis трактуется как «стоп»
 # --------------------------------------------------------------------------
 
+
 async def test_read_failure_blocks_rather_than_allows():
     """Сбой инфраструктуры не должен молча выглядеть как «рубильник
     выключен» — иначе сбойный Redis не защищает вообще ни от чего."""
@@ -98,6 +100,7 @@ async def test_status_read_failure_reports_stopped():
 # --------------------------------------------------------------------------
 # Нет Redis совсем — только тесты/локальный стенд, не прод
 # --------------------------------------------------------------------------
+
 
 async def test_no_redis_is_not_stopped():
     assert await kill_switch.is_stopped(None) is False

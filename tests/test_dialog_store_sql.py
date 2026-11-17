@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import UTC
 from decimal import Decimal
 from pathlib import Path
 
@@ -101,17 +102,18 @@ async def store():
 # Chat
 # --------------------------------------------------------------------------
 
+
 async def test_get_or_create_chat_creates_then_finds_the_same_row(store):
     created = await store.get_or_create_chat("chat-1", item_id="item-1")
     assert created.chat_id == "chat-1"
     assert created.item_id == "item-1"
 
     again = await store.get_or_create_chat("chat-1")
-    assert again.item_id == "item-1"     # не затёрлось отсутствием item_id
+    assert again.item_id == "item-1"  # не затёрлось отсутствием item_id
 
 
 async def test_item_id_is_filled_in_later_but_never_erased(store):
-    await store.get_or_create_chat("chat-1")           # первый вебхук без item_id
+    await store.get_or_create_chat("chat-1")  # первый вебхук без item_id
     filled = await store.get_or_create_chat("chat-1", item_id="item-9")
     assert filled.item_id == "item-9"
 
@@ -145,6 +147,7 @@ async def test_takeover_flag_survives_a_reread(store):
 # Дедупликация через уникальный индекс
 # --------------------------------------------------------------------------
 
+
 async def test_duplicate_avito_message_id_is_rejected_by_the_unique_index(store):
     """Второй рубеж после Redis: сброс кеша не должен приводить к удвоенным
     сообщениям в переписке."""
@@ -173,6 +176,7 @@ async def test_messages_without_an_id_are_not_deduplicated_against_each_other(st
 # История
 # --------------------------------------------------------------------------
 
+
 async def test_history_keeps_order_and_maps_roles(store):
     await store.get_or_create_chat("chat-1")
     await store.save_incoming("chat-1", "Здравствуйте", avito_message_id="m-1")
@@ -195,7 +199,11 @@ async def test_history_returns_the_tail_not_the_head(store):
 
     history = await store.load_history("chat-1", limit=5)
     assert [m["content"] for m in history] == [
-        "сообщение 35", "сообщение 36", "сообщение 37", "сообщение 38", "сообщение 39",
+        "сообщение 35",
+        "сообщение 36",
+        "сообщение 37",
+        "сообщение 38",
+        "сообщение 39",
     ]
 
 
@@ -205,9 +213,7 @@ async def test_rejected_and_failed_replies_stay_out_of_the_history(store):
     await store.save_outgoing("chat-1", "не ушёл в Авито", SendStatus.failed)
     await store.save_outgoing("chat-1", "ушёл клиенту", SendStatus.sent)
 
-    assert await store.load_history("chat-1") == [
-        {"role": "assistant", "content": "ушёл клиенту"}
-    ]
+    assert await store.load_history("chat-1") == [{"role": "assistant", "content": "ушёл клиенту"}]
 
 
 async def test_history_is_per_chat(store):
@@ -223,6 +229,7 @@ async def test_history_is_per_chat(store):
 # llm_meta и состояние диалога
 # --------------------------------------------------------------------------
 
+
 async def test_llm_meta_survives_the_jsonb_round_trip(store):
     from sqlalchemy import select
 
@@ -230,13 +237,18 @@ async def test_llm_meta_survives_the_jsonb_round_trip(store):
 
     await store.get_or_create_chat("chat-1")
     meta = {
-        "provider": "anthropic", "model": "claude-sonnet-5",
-        "input_tokens": 1200, "output_tokens": 80, "cost_rub": "1.23",
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "input_tokens": 1200,
+        "output_tokens": 80,
+        "cost_rub": "1.23",
     }
     await store.save_outgoing("chat-1", "Ответ", SendStatus.dry_run, llm_meta=meta)
 
     async with store._session_factory() as session:
-        row = (await session.execute(select(Message).where(Message.chat_id == "chat-1"))).scalar_one()
+        row = (
+            await session.execute(select(Message).where(Message.chat_id == "chat-1"))
+        ).scalar_one()
 
     assert row.llm_meta == meta
     assert row.author == Author.agent
@@ -261,11 +273,11 @@ async def test_ruble_sign_survives_a_round_trip(store):
     await store.save_outgoing("chat-1", text_with_ruble, SendStatus.sent)
 
     async with store._session_factory() as session:
-        row = (await session.execute(select(Message).where(Message.chat_id == "chat-1"))).scalar_one()
+        row = (
+            await session.execute(select(Message).where(Message.chat_id == "chat-1"))
+        ).scalar_one()
     assert row.text == text_with_ruble
-    assert await store.load_history("chat-1") == [
-        {"role": "assistant", "content": text_with_ruble}
-    ]
+    assert await store.load_history("chat-1") == [{"role": "assistant", "content": text_with_ruble}]
 
 
 async def test_dialog_state_round_trip_keeps_decimal_and_tiers(store):
@@ -324,17 +336,20 @@ async def test_touch_state_written_here_is_visible_to_the_scheduler_store(store)
     """Конвейер и воркер касаний пишут в ОДНИ И ТЕ ЖЕ колонки — если они
     разойдутся, сброс таймера в конвейере не будет виден воркеру, и второе
     касание всё равно уйдёт ответившему клиенту."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.ops.touch_scheduler import SqlAlchemyTouchStore
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await store.get_or_create_chat("chat-1")
     await store.save_dialog_state(
         "chat-1",
         DialogConcessionState(base_price_quoted=True, touch_count=1),
-        TouchState(touch_count=1, last_touch_at=now - timedelta(hours=1),
-                   next_touch_due_at=now - timedelta(minutes=1)),
+        TouchState(
+            touch_count=1,
+            last_touch_at=now - timedelta(hours=1),
+            next_touch_due_at=now - timedelta(minutes=1),
+        ),
     )
 
     scheduler_store = SqlAlchemyTouchStore(store._session_factory)
@@ -344,6 +359,7 @@ async def test_touch_state_written_here_is_visible_to_the_scheduler_store(store)
     # Клиент ответил — конвейер сбрасывает таймер.
     concession, touch = await store.load_dialog_state("chat-1")
     from app.agent.touch_tracking import reset_timer_on_reply
+
     await store.save_dialog_state("chat-1", concession, reset_timer_on_reply(touch))
 
     assert await scheduler_store.list_due(now, max_count=3) == []
@@ -360,6 +376,7 @@ async def test_agent_reply_count_increments(store):
 # --------------------------------------------------------------------------
 # ItemZoneLookup
 # --------------------------------------------------------------------------
+
 
 async def test_item_zone_lookup_returns_row_or_none(store):
     from app.db.models import ItemZoneMap

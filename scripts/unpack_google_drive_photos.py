@@ -39,17 +39,19 @@ from __future__ import annotations
 
 import argparse
 import re
-import shutil
 import sys
-import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.media.photo_import import load_folder_map, normalize_name, resolve_folder, UnknownFolderError  # noqa: E402
+from app.media.photo_import import (  # noqa: E402
+    UnknownFolderError,
+    load_folder_map,
+    normalize_name,
+    resolve_folder,
+)
 
 DOWNLOADS = Path.home() / "Downloads"
 MEDIA_ROOT = Path(__file__).resolve().parent.parent / "media" / "photos"
@@ -68,7 +70,7 @@ _CAMERA_NAME = re.compile(r"^[A-Za-z_]*(\d{3,6})(?:\(\d+\))?$")
 @dataclass
 class ExtractedFile:
     archive: str
-    folder_raw: str          # исходное имя папки внутри архива, с пробелами
+    folder_raw: str  # исходное имя папки внутри архива, с пробелами
     filename: str
     data: bytes
 
@@ -76,12 +78,12 @@ class ExtractedFile:
 def decode_zip_name(info: zipfile.ZipInfo) -> str:
     """Правильное имя файла независимо от того, выставлен ли UTF-8 flag bit."""
     if info.flag_bits & 0x800:
-        return info.filename   # zipfile уже декодировал как UTF-8 — верим
+        return info.filename  # zipfile уже декодировал как UTF-8 — верим
 
     try:
         raw = info.filename.encode("cp437")
     except UnicodeEncodeError:
-        return info.filename   # ASCII-имя, декодировать не от чего
+        return info.filename  # ASCII-имя, декодировать не от чего
 
     for enc in ("cp866", "cp1251"):
         try:
@@ -107,7 +109,7 @@ def extract_all(archives: list[Path]) -> list[ExtractedFile]:
                 name = decode_zip_name(info)
                 parts = name.split("/", 1)
                 if len(parts) < 2:
-                    continue   # файл не внутри подпапки — не наш случай
+                    continue  # файл не внутри подпапки — не наш случай
                 folder_raw, filename = parts[0], parts[1]
                 if filename.endswith("/") or not filename:
                     continue
@@ -115,30 +117,36 @@ def extract_all(archives: list[Path]) -> list[ExtractedFile]:
                 if ext not in IMAGE_EXTENSIONS:
                     continue
                 data = zf.read(info)
-                files.append(ExtractedFile(
-                    archive=archive.name, folder_raw=folder_raw.strip(),
-                    filename=filename, data=data,
-                ))
+                files.append(
+                    ExtractedFile(
+                        archive=archive.name,
+                        folder_raw=folder_raw.strip(),
+                        filename=filename,
+                        data=data,
+                    )
+                )
     return files
 
 
 @dataclass
 class ZonePlan:
-    zone_key: str            # zone_id или site-категория
-    kind: str                 # "zone" | "site"
+    zone_key: str  # zone_id или site-категория
+    kind: str  # "zone" | "site"
     folder_raw: str
-    order_confidence: str     # "high" (числовой шаблон) | "low" (по разрешению)
+    order_confidence: str  # "high" (числовой шаблон) | "low" (по разрешению)
     ordered: list[tuple[ExtractedFile, tuple[int, int]]] = field(default_factory=list)
 
 
 def _resolution(data: bytes) -> tuple[int, int]:
     from io import BytesIO
+
     from PIL import Image
+
     with Image.open(BytesIO(data)) as img:
         return img.size
 
 
-def _order_key_by_number(f: ExtractedFile) -> Optional[int]:
+def _order_key_by_number(f: ExtractedFile) -> int | None:
     match = _CAMERA_NAME.match(Path(f.filename).stem)
     return int(match.group(1)) if match else None
 
@@ -155,27 +163,35 @@ def _order_key_by_number(f: ExtractedFile) -> Optional[int]:
 # отдельно помеченными как непросмотренные (см. _apply_manual_order).
 MANUAL_ORDER: dict[str, list[str]] = {
     "гриль домик": [
-        "IMG_7961.PNG", "IMG_7962.PNG",
+        "IMG_7961.PNG",
+        "IMG_7962.PNG",
         "611EAF1D-9181-4078-9A76-53ED268E3C5D.jpeg",
         "3664765D-ECE0-477E-84C7-103DE810A73E.jpeg",
-        "IMG_7959.PNG", "IMG_7960.PNG", "IMG_8162.PNG",
+        "IMG_7959.PNG",
+        "IMG_7960.PNG",
+        "IMG_8162.PNG",
     ],
     "юрта": [
-        "IMG_5521.PNG", "7EE177CD-163E-4B15-A77E-7AEE3A1AEA79.webp",
-        "815a8f96-4833-40ce-a174-b8e5277d1f49.jpg", "IMG_5522.PNG",
+        "IMG_5521.PNG",
+        "7EE177CD-163E-4B15-A77E-7AEE3A1AEA79.webp",
+        "815a8f96-4833-40ce-a174-b8e5277d1f49.jpg",
+        "IMG_5522.PNG",
         "FE6D3AA8-4138-42A1-BC28-DE60ED490625.webp",
-        "IMG_5523.PNG", "4485e385-a235-4206-ac7f-893adadb202b.jpg",
+        "IMG_5523.PNG",
+        "4485e385-a235-4206-ac7f-893adadb202b.jpg",
         "e59684a5-c8f8-4ff8-a503-3b4c60a39ee9.jpg",
         "c1a39f94-b15e-43e5-b80e-a4c12d861608.jpg",
-        "IMG_5524.PNG", "IMG_5525.PNG", "IMG_5526.PNG",
+        "IMG_5524.PNG",
+        "IMG_5525.PNG",
+        "IMG_5526.PNG",
     ],
 }
-DROP_FILES = {"IMG_7961(1).PNG"}   # побайтовый дубликат IMG_7961.PNG
+DROP_FILES = {"IMG_7961(1).PNG"}  # побайтовый дубликат IMG_7961.PNG
 
 
 def _apply_manual_order(
-    folder_raw: str, group_files: list["ExtractedFile"]
-) -> Optional[list["ExtractedFile"]]:
+    folder_raw: str, group_files: list[ExtractedFile]
+) -> list[ExtractedFile] | None:
     manual = MANUAL_ORDER.get(normalize_name(folder_raw))
     if manual is None:
         return None
@@ -217,13 +233,13 @@ def build_plan(files: list[ExtractedFile]) -> tuple[list[ZonePlan], list[str]]:
                 ordered_files = sorted(group_files, key=_order_key_by_number)
                 confidence = "high"
             else:
-                ordered_files = sorted(
-                    group_files, key=lambda f: _resolution(f.data), reverse=True
-                )
+                ordered_files = sorted(group_files, key=lambda f: _resolution(f.data), reverse=True)
                 confidence = "low"
 
         plan = ZonePlan(
-            zone_key=resolved.key, kind=resolved.kind, folder_raw=folder_raw,
+            zone_key=resolved.key,
+            kind=resolved.kind,
+            folder_raw=folder_raw,
             order_confidence=confidence,
         )
         for f in ordered_files:
@@ -272,7 +288,7 @@ def print_plan(plans: list[ZonePlan], unmapped: list[str]) -> None:
 def apply_plan(plans: list[ZonePlan], media_root: Path = MEDIA_ROOT) -> None:
     for plan in plans:
         if plan.kind != "zone":
-            continue   # site-категории размечены в catalog.yaml иначе — см. app/media/photo_import.py
+            continue  # site-категории размечены в catalog.yaml иначе — см. app/media/photo_import.py
         out_dir = media_root / plan.zone_key
         out_dir.mkdir(parents=True, exist_ok=True)
         for i, (f, _res) in enumerate(plan.ordered, start=1):
@@ -307,7 +323,9 @@ def main() -> int:
     if args.apply:
         apply_plan(plans)
     else:
-        print("Это только план — файлы не записаны. Повторите с --apply, когда порядок подтверждён.")
+        print(
+            "Это только план — файлы не записаны. Повторите с --apply, когда порядок подтверждён."
+        )
 
     return 0
 

@@ -60,8 +60,7 @@ def test_three_hour_seance_near_closing_is_not_false_busy():
 
 def test_booking_in_the_middle_of_the_interval_blocks_it():
     """Случай 19.09: бронь 16:00–19:00 посреди запрошенного окна."""
-    free = tuple(f"{h}:{m:02d}" for h in range(9, 23) for m in (0, 30)
-                 if not (16 <= h < 19))
+    free = tuple(f"{h}:{m:02d}" for h in range(9, 23) for m in (0, 30) if not (16 <= h < 19))
     assert interval_is_free(free, time(12, 0), 3, 0)
     assert not interval_is_free(free, time(14, 0), 6, 0)
 
@@ -69,10 +68,32 @@ def test_booking_in_the_middle_of_the_interval_blocks_it():
 # Живой ответ book_times 2026-10-01: гриль-домик, сб 03.10, L = 3 ч, запись
 # 18:00-20:30. Старты отдаются до самого закрытия — значит, свободное t
 # означает лишь «не внутри записи», а не «[t, t+3ч) свободно».
-GRILL_0310 = ("9:00", "9:30", "10:00", "10:30", "11:00", "11:30", "12:00",
-              "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30",
-              "16:00", "16:30", "17:00", "17:30", "20:30", "21:00", "21:30",
-              "22:00", "22:30", "23:00")
+GRILL_0310 = (
+    "9:00",
+    "9:30",
+    "10:00",
+    "10:30",
+    "11:00",
+    "11:30",
+    "12:00",
+    "12:30",
+    "13:00",
+    "13:30",
+    "14:00",
+    "14:30",
+    "15:00",
+    "15:30",
+    "16:00",
+    "16:30",
+    "17:00",
+    "17:30",
+    "20:30",
+    "21:00",
+    "21:30",
+    "22:00",
+    "22:30",
+    "23:00",
+)
 
 
 def test_live_case_0310_grill_start_before_booking_is_busy():
@@ -95,6 +116,7 @@ def test_seance_length_is_read_from_book_times():
 
 # ---------------------------------------------------------------- альтернативы
 
+
 class _FreeOnly:
     def __init__(self, free_zone_ids):
         self.free = set(free_zone_ids)
@@ -114,10 +136,16 @@ async def test_invented_guests_do_not_hide_a_free_small_bath(kb):
     ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: date(2026, 9, 23))
     ex.known_guests = None  # клиент гостей не называл
 
-    result = await ex.run("check_availability", {
-        "zone_id": "bath_russian", "date": "2026-09-26",
-        "start_time": "20:00", "hours": 4, "guests": 10,
-    })
+    result = await ex.run(
+        "check_availability",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-09-26",
+            "start_time": "20:00",
+            "hours": 4,
+            "guests": 10,
+        },
+    )
 
     ids = [a["zone_id"] for a in result["alternatives"]]
     assert ids[0] == "bath_knight", "свободная баня — первой, а не купол"
@@ -128,10 +156,16 @@ async def test_guests_named_by_client_still_filter(kb):
     ex = ToolExecutor(kb, "d1", booking_provider=provider, today_fn=lambda: date(2026, 9, 23))
     ex.known_guests = 10  # клиент сам сказал «нас 10»
 
-    result = await ex.run("check_availability", {
-        "zone_id": "bath_russian", "date": "2026-09-26",
-        "start_time": "20:00", "hours": 4, "guests": 10,
-    })
+    result = await ex.run(
+        "check_availability",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-09-26",
+            "start_time": "20:00",
+            "hours": 4,
+            "guests": 10,
+        },
+    )
 
     ids = [a["zone_id"] for a in result["alternatives"]]
     assert "bath_knight" not in ids
@@ -141,8 +175,9 @@ async def test_guests_named_by_client_still_filter(kb):
 async def test_same_category_is_offered_first(kb):
     """Купол занят — сначала другие купола, а не бани."""
     everything = {z.id for z in kb.catalog.zones}
-    ex = ToolExecutor(kb, "d1", booking_provider=_FreeOnly(everything),
-                      today_fn=lambda: date(2026, 9, 23))
+    ex = ToolExecutor(
+        kb, "d1", booking_provider=_FreeOnly(everything), today_fn=lambda: date(2026, 9, 23)
+    )
 
     found = await ex._free_neighbours("dome_bags", date(2026, 9, 26), time(14, 0), 3, None)
 
@@ -152,6 +187,7 @@ async def test_same_category_is_offered_first(kb):
 
 
 # ---------------------------------------------------------------- объявления
+
 
 def test_vacancy_category_is_denied_whatever_the_title():
     decision, reason = classify_title("Банный комплекс ищет помощника", "Вакансии")
@@ -170,6 +206,7 @@ def test_bath_listing_is_still_allowed():
 
 
 # ---------------------------------------------------------------- каталог
+
 
 def test_firewood_is_not_included_in_bath_price(kb):
     """владелец 2026-08-28: «дрова надо убрать, они у нас не входят в сумму»."""

@@ -9,9 +9,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -25,13 +24,13 @@ MAX_TELEGRAM_LEN = 4096
 @dataclass(frozen=True)
 class DialogCard:
     chat_id: str
-    item_title: Optional[str]
-    buyer_name: Optional[str]
+    item_title: str | None
+    buyer_name: str | None
     client_text: str
     agent_text: str
     dry_run: bool
     escalated: bool = False
-    escalation_reason: Optional[str] = None
+    escalation_reason: str | None = None
 
 
 def _clip(text: str, limit: int) -> str:
@@ -62,11 +61,13 @@ def dialog_keyboard(chat_id: str, dry_run: bool, taken_over: bool) -> InlineKeyb
 
     if dry_run and not taken_over:
         rows.append(
-            [InlineKeyboardButton(text="✅ Одобрить и отправить", callback_data=f"approve:{chat_id}")]
+            [
+                InlineKeyboardButton(
+                    text="✅ Одобрить и отправить", callback_data=f"approve:{chat_id}"
+                )
+            ]
         )
-        rows.append(
-            [InlineKeyboardButton(text="🚫 Отклонить", callback_data=f"reject:{chat_id}")]
-        )
+        rows.append([InlineKeyboardButton(text="🚫 Отклонить", callback_data=f"reject:{chat_id}")])
 
     if taken_over:
         rows.append(
@@ -78,7 +79,11 @@ def dialog_keyboard(chat_id: str, dry_run: bool, taken_over: bool) -> InlineKeyb
         )
 
     rows.append(
-        [InlineKeyboardButton(text="🔗 Открыть в Авито", url=AVITO_CHAT_URL.format(chat_id=chat_id))]
+        [
+            InlineKeyboardButton(
+                text="🔗 Открыть в Авито", url=AVITO_CHAT_URL.format(chat_id=chat_id)
+            )
+        ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -96,12 +101,12 @@ class ConcessionRequestCard:
     chat_id: str
     client_text: str
     agent_text: str
-    tier: Optional[int]
-    trigger: Optional[str]
-    reason: str                       # почему нужен человек — denial_reason
-    base_price: Optional[Decimal]
-    final_price: Optional[Decimal]
-    revenue_delta: Optional[Decimal]
+    tier: int | None
+    trigger: str | None
+    reason: str  # почему нужен человек — denial_reason
+    base_price: Decimal | None
+    final_price: Decimal | None
+    revenue_delta: Decimal | None
     concessions_today: int
     provisional: bool
 
@@ -113,8 +118,7 @@ def render_concession_request(card: ConcessionRequestCard) -> str:
         f"💬 Клиент: {_clip(card.client_text, 700)}",
         f"🤖 Иришка ответит: {_clip(card.agent_text, 1200) or '(пусто)'}",
         "",
-        f"Ступень: {card.tier if card.tier is not None else '—'}"
-        f" · триггер: {card.trigger or '—'}",
+        f"Ступень: {card.tier if card.tier is not None else '—'} · триггер: {card.trigger or '—'}",
     ]
     if card.base_price is not None and card.final_price is not None:
         lines.append(
@@ -141,7 +145,11 @@ def concession_keyboard(chat_id: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✅ Разрешить скидку", callback_data=f"approve:{chat_id}")],
             [InlineKeyboardButton(text="🚫 Отклонить", callback_data=f"reject:{chat_id}")],
             [InlineKeyboardButton(text="🙋 Взять на себя", callback_data=f"takeover:{chat_id}")],
-            [InlineKeyboardButton(text="🔗 Открыть в Авито", url=AVITO_CHAT_URL.format(chat_id=chat_id))],
+            [
+                InlineKeyboardButton(
+                    text="🔗 Открыть в Авито", url=AVITO_CHAT_URL.format(chat_id=chat_id)
+                )
+            ],
         ]
     )
 
@@ -162,13 +170,13 @@ def render_daily_limit_notice(chat_id: str, limit: int) -> str:
     )
 
 
-def render_outbound_daily_limit_notice(count: int, limit: int, at: Optional[datetime] = None) -> str:
+def render_outbound_daily_limit_notice(count: int, limit: int, at: datetime | None = None) -> str:
     """Суточный лимит ВСЕХ исходящих исчерпан (app/channels/daily_limit.py) —
     не путать с `render_daily_limit_notice` выше, тот про лимит ценовых
     уступок. Это НЕ тихая остановка: с этого сообщения и до полуночи по
     Москве OutboundGate отклоняет любую отправку по любому чату, и
     оператору нужно узнать об этом сразу, а не из жалоб клиентов."""
-    at = (at or datetime.now(timezone.utc)).astimezone(MOSCOW_TZ)
+    at = (at or datetime.now(UTC)).astimezone(MOSCOW_TZ)
     return "\n".join(
         [
             f"🚨 СУТОЧНЫЙ ЛИМИТ ИСХОДЯЩИХ ИСЧЕРПАН ({limit})",
@@ -180,12 +188,12 @@ def render_outbound_daily_limit_notice(count: int, limit: int, at: Optional[date
     )
 
 
-def render_outbound_daily_limit_unavailable_notice(limit: int, at: Optional[datetime] = None) -> str:
+def render_outbound_daily_limit_unavailable_notice(limit: int, at: datetime | None = None) -> str:
     """Redis, которым считается суточный лимит, недоступен — OutboundGate
     отказал в отправке fail closed (см. app/channels/daily_limit.py), но
     это НЕ «лимит исчерпан», а «не смогли проверить», и оператору нужно
     чинить Redis, а не ждать полуночи."""
-    at = (at or datetime.now(timezone.utc)).astimezone(MOSCOW_TZ)
+    at = (at or datetime.now(UTC)).astimezone(MOSCOW_TZ)
     return "\n".join(
         [
             "🚨 СУТОЧНЫЙ ЛИМИТ ИСХОДЯЩИХ НЕ ПРОВЕРЯЕТСЯ — REDIS НЕ ОТВЕЧАЕТ",
@@ -199,7 +207,7 @@ def render_outbound_daily_limit_unavailable_notice(limit: int, at: Optional[date
 
 
 def render_daily_cost_limit_notice(
-    spent_rub: Decimal, limit_rub: Decimal, at: Optional[datetime] = None
+    spent_rub: Decimal, limit_rub: Decimal, at: datetime | None = None
 ) -> str:
     """Дневной лимит расхода на модели исчерпан — агент уже на паузе.
 
@@ -209,7 +217,7 @@ def render_daily_cost_limit_notice(
     Поэтому в тексте прямо сказано, чем снимается, — иначе полуночного
     сброса будут ждать зря (счётчик обнулится, пауза останется).
     """
-    at = (at or datetime.now(timezone.utc)).astimezone(MOSCOW_TZ)
+    at = (at or datetime.now(UTC)).astimezone(MOSCOW_TZ)
     return "\n".join(
         [
             f"🚨 ДНЕВНОЙ ЛИМИТ РАСХОДА НА МОДЕЛИ ИСЧЕРПАН ({limit_rub} ₽)",
@@ -240,9 +248,9 @@ def render_escalation(chat_id: str, reason: str, urgency: str = "normal") -> str
 
 def render_concession(
     chat_id: str,
-    tier: Optional[int],
-    kind: Optional[str],
-    trigger: Optional[str],
+    tier: int | None,
+    kind: str | None,
+    trigger: str | None,
     revenue_delta: Decimal,
     provisional: bool,
     offer_template: str,
@@ -259,9 +267,7 @@ def render_concession(
         f"Недополучено: {revenue_delta} ₽",
     ]
     if provisional:
-        lines.append(
-            "⚠️ Правило предварительное (наше, не подтверждённое заказчиком) — вопрос 13.4"
-        )
+        lines.append("⚠️ Правило предварительное (наше, не подтверждённое заказчиком) — вопрос 13.4")
     lines.append("")
     lines.append(f"Текст клиенту: {_clip(offer_template, 600)}")
     return _clip("\n".join(lines), MAX_TELEGRAM_LEN)
@@ -313,9 +319,7 @@ def render_digest(
         lines.append("Контакты:")
         for lead in leads[:20]:
             zone = lead.get("zone_id") or "зона не указана"
-            lines.append(
-                f"  • {lead.get('name') or 'без имени'} · {lead.get('phone')} · {zone}"
-            )
+            lines.append(f"  • {lead.get('name') or 'без имени'} · {lead.get('phone')} · {zone}")
 
     lines.append("")
     lines.append(f"Эскалаций: {len(escalations)}")

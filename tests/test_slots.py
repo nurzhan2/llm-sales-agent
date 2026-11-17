@@ -18,7 +18,7 @@ from app.agent.slots import (
     next_missing_slot,
 )
 
-TODAY = date(2026, 9, 18)   # пятница
+TODAY = date(2026, 9, 18)  # пятница
 
 
 def slots_of(text, history=None, **kwargs):
@@ -28,6 +28,7 @@ def slots_of(text, history=None, **kwargs):
 # --------------------------------------------------------------------------
 # Дата
 # --------------------------------------------------------------------------
+
 
 def test_the_complaint_message_yields_the_date():
     """Дословная реплика из жалобы заказчика."""
@@ -60,8 +61,10 @@ def test_the_agents_own_words_are_not_read_as_the_clients():
     """Приветствие агента перечисляет все зоны разом — если считать это за
     «клиент назвал зону», условие выполнялось бы всегда."""
     history = [
-        {"role": "assistant",
-         "content": "Здравствуйте! У нас баня, купол, гриль-домик или шатёр на 20 сентября."},
+        {
+            "role": "assistant",
+            "content": "Здравствуйте! У нас баня, купол, гриль-домик или шатёр на 20 сентября.",
+        },
     ]
     slots = slots_of("а что посоветуете?", history)
 
@@ -77,6 +80,7 @@ def test_the_last_mention_wins():
 # --------------------------------------------------------------------------
 # Гости
 # --------------------------------------------------------------------------
+
 
 def test_guest_forms_from_real_messages():
     assert slots_of("нас 6теро").guests == 6
@@ -95,6 +99,7 @@ def test_a_date_is_not_mistaken_for_a_guest_count():
 # --------------------------------------------------------------------------
 # Длительность и время начала
 # --------------------------------------------------------------------------
+
 
 def test_duration_and_start_time_are_told_apart_by_the_preposition():
     """«на 4 часа» — длительность, «в 16 часов» — начало."""
@@ -141,6 +146,7 @@ def test_duration_in_words():
 # Зона
 # --------------------------------------------------------------------------
 
+
 def test_the_listing_zone_counts_as_told():
     slots = slots_of("а свободно?", listing_zone="Гриль-домик («Зелёная зона»)")
 
@@ -159,6 +165,7 @@ def test_the_clients_own_word_beats_the_listing():
 # --------------------------------------------------------------------------
 # О чём уже спрашивали
 # --------------------------------------------------------------------------
+
 
 def test_asked_slots_reads_only_questions():
     history = [
@@ -187,6 +194,7 @@ def test_the_clients_own_questions_are_not_counted():
 # --------------------------------------------------------------------------
 # Подсказка
 # --------------------------------------------------------------------------
+
 
 def test_no_hint_when_nothing_is_known():
     assert build_context_hint(Slots(), ()) is None
@@ -233,6 +241,7 @@ def test_describe_slots_distinguishes_the_clients_word_from_the_catalogue_name()
 # Чего не хватает
 # --------------------------------------------------------------------------
 
+
 def test_next_missing_slot_follows_priority_not_call_order():
     slots = Slots(guests=6)
     assert next_missing_slot(slots, needed=("hours", "date")) == "date"
@@ -240,7 +249,10 @@ def test_next_missing_slot_follows_priority_not_call_order():
 
 def test_next_missing_slot_is_none_when_everything_is_known():
     slots = Slots(
-        date=date(2026, 9, 20), guests=6, hours=4,
-        start_time=time(13, 0), zone="гриль",
+        date=date(2026, 9, 20),
+        guests=6,
+        hours=4,
+        start_time=time(13, 0),
+        zone="гриль",
     )
     assert next_missing_slot(slots) is None

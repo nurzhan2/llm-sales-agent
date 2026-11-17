@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, Protocol
+from typing import Protocol
 
 logger = logging.getLogger("parmangal.poller.cursors")
 
@@ -46,10 +46,10 @@ class CursorRecord:
     chat_id: str
     created: int = 0
     seen_ids: tuple[str, ...] = ()
-    skipped_reason: Optional[str] = None
-    item_id: Optional[str] = None
+    skipped_reason: str | None = None
+    item_id: str | None = None
 
-    def already_seen(self, message_id: Optional[str], created: Optional[int]) -> bool:
+    def already_seen(self, message_id: str | None, created: int | None) -> bool:
         if created is None:
             return False
         if created < self.created:
@@ -58,7 +58,7 @@ class CursorRecord:
             return False
         return message_id is not None and message_id in self.seen_ids
 
-    def advanced_by(self, message_id: Optional[str], created: Optional[int]) -> "CursorRecord":
+    def advanced_by(self, message_id: str | None, created: int | None) -> CursorRecord:
         """Курсор после обработки одного сообщения.
 
         Двигается ПО КАЖДОМУ сообщению, а не по максимуму батча: упавшее
@@ -124,10 +124,10 @@ class SqlAlchemyCursorStore:
 
         async with self._session_factory() as session:
             rows = (
-                await session.execute(
-                    select(ChatCursor).where(ChatCursor.chat_id.in_(chat_ids))
-                )
-            ).scalars().all()
+                (await session.execute(select(ChatCursor).where(ChatCursor.chat_id.in_(chat_ids))))
+                .scalars()
+                .all()
+            )
         return {row.chat_id: self._to_record(row) for row in rows}
 
     async def save(self, record: CursorRecord) -> None:

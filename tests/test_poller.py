@@ -11,9 +11,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from app.avito.cursors import CursorRecord, InMemoryCursorStore
 from app.avito.own_items import OwnItemIds
@@ -24,7 +22,7 @@ from app.config import Settings
 from app.pipeline import MessagePipeline
 
 OUR_USER_ID = "173843599"
-NOW = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 NOW_TS = int(NOW.timestamp())
 
 
@@ -96,11 +94,11 @@ class FakeAvito:
         self.chat_requests.append((limit, offset))
         if self.offset_ceiling is not None and offset > self.offset_ceiling:
             raise RuntimeError("400 Bad Request")
-        return {"chats": self._chats[offset:offset + limit]}
+        return {"chats": self._chats[offset : offset + limit]}
 
     async def get_messages(self, chat_id, *, limit=50, offset=0):
         batch = self._messages.get(chat_id, [])
-        return {"messages": batch[offset:offset + limit]}
+        return {"messages": batch[offset : offset + limit]}
 
 
 def _chat(chat_id, item_id, created, author, title="Баня", message_id=None):
@@ -117,7 +115,9 @@ def _chat(chat_id, item_id, created, author, title="Баня", message_id=None):
     chat: dict = {
         "id": chat_id,
         "last_message": {
-            "id": message_id or f"{chat_id}-last", "created": created, "author_id": author,
+            "id": message_id or f"{chat_id}-last",
+            "created": created,
+            "author_id": author,
         },
     }
     if item_id is not None:
@@ -135,8 +135,9 @@ def _message(message_id, created, author=OUR_USER_ID, text="привет"):
     }
 
 
-def _poller(chats, messages, *, settings=None, pipeline=None, cursors=None,
-            own_items=None, redis=None):
+def _poller(
+    chats, messages, *, settings=None, pipeline=None, cursors=None, own_items=None, redis=None
+):
     client = FakeAvito(chats, messages)
     poller = AvitoPoller(
         client=client,
@@ -158,14 +159,14 @@ async def _resolved(value):
 # Курсор
 # --------------------------------------------------------------------------
 
+
 async def test_second_pass_feeds_nothing_new():
     chats = [_chat("c1", "111", NOW_TS - 60, "buyer")]
     messages = {"c1": [_message("m1", NOW_TS - 60, author="buyer")]}
     pipeline = FakePipeline()
     cursors = InMemoryCursorStore()
 
-    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors,
-                        own_items={"111"})
+    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors, own_items={"111"})
     await poller.run_pass()
     assert pipeline.message_ids == ["m1"]
 
@@ -177,16 +178,17 @@ async def test_cursor_advances_per_message_not_per_batch():
     """Одно упавшее сообщение не должно уносить курсор за все следующие."""
     created = NOW_TS - 60
     chats = [_chat("c1", "111", created + 2, "buyer")]
-    messages = {"c1": [
-        _message("m3", created + 2, author="buyer"),
-        _message("m2", created + 1, author="buyer"),
-        _message("m1", created, author="buyer"),
-    ]}
+    messages = {
+        "c1": [
+            _message("m3", created + 2, author="buyer"),
+            _message("m2", created + 1, author="buyer"),
+            _message("m1", created, author="buyer"),
+        ]
+    }
     pipeline = FakePipeline(fail_on={"m2"})
     cursors = InMemoryCursorStore()
 
-    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors,
-                        own_items={"111"})
+    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors, own_items={"111"})
     await poller.run_pass()
 
     # m1 обработано, m2 упало — на нём и остановились, m3 не подавали.
@@ -212,17 +214,18 @@ async def test_new_message_in_the_same_second_as_the_cursor_is_not_lost():
     """
     created = NOW_TS - 60
     chats = [_chat("c1", "111", created, "buyer")]
-    messages = {"c1": [
-        _message("m2", created, author="buyer"),
-        _message("m1", created, author="buyer"),
-    ]}
+    messages = {
+        "c1": [
+            _message("m2", created, author="buyer"),
+            _message("m1", created, author="buyer"),
+        ]
+    }
     pipeline = FakePipeline()
     cursors = InMemoryCursorStore()
     # m1 уже обработано ровно на этой секунде.
     cursors.rows["c1"] = CursorRecord("c1", created, ("m1",))
 
-    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors,
-                        own_items={"111"})
+    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors, own_items={"111"})
     await poller.run_pass()
 
     assert pipeline.message_ids == ["m2"], "новое сообщение той же секунды потеряно"
@@ -232,15 +235,16 @@ async def test_new_message_in_the_same_second_as_the_cursor_is_not_lost():
 async def test_same_second_messages_are_fed_once_each():
     created = NOW_TS - 60
     chats = [_chat("c1", "111", created, "buyer", message_id="m2")]
-    messages = {"c1": [
-        _message("m2", created, author="buyer"),
-        _message("m1", created, author="buyer"),
-    ]}
+    messages = {
+        "c1": [
+            _message("m2", created, author="buyer"),
+            _message("m1", created, author="buyer"),
+        ]
+    }
     pipeline = FakePipeline()
     cursors = InMemoryCursorStore()
 
-    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors,
-                        own_items={"111"})
+    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors, own_items={"111"})
     await poller.run_pass()
     assert sorted(pipeline.message_ids) == ["m1", "m2"]
 
@@ -263,6 +267,7 @@ async def test_cursor_never_moves_backwards():
 # читать»; «отвечать ли» — AGENT_MIN_INBOUND_TS в конвейере, покрыто
 # tests/test_pipeline.py и tests/test_min_inbound_invariant.py.
 # --------------------------------------------------------------------------
+
 
 async def test_cold_start_feeds_an_old_last_message_same_as_any_other_pass():
     """Раньше это была ветка «пропуск: old». Курсору больше нечего решать —
@@ -299,6 +304,7 @@ async def test_cold_start_feeds_our_own_last_message_too():
 # Гуард «своё ли объявление»
 # --------------------------------------------------------------------------
 
+
 async def test_foreign_listing_is_never_fed():
     """На живом аккаунте 33 таких чата: «Репетитор по физике ЕГЭ», «Покос
     травы триммером» — владелец там покупатель. В чёрном списке их нет."""
@@ -306,8 +312,7 @@ async def test_foreign_listing_is_never_fed():
     pipeline = FakePipeline()
     cursors = InMemoryCursorStore()
 
-    poller, _ = _poller(chats, {}, pipeline=pipeline, cursors=cursors,
-                        own_items={"111", "222"})
+    poller, _ = _poller(chats, {}, pipeline=pipeline, cursors=cursors, own_items={"111", "222"})
     await poller.run_pass()
 
     assert pipeline.events == []
@@ -337,9 +342,12 @@ async def test_pass_is_cancelled_when_listings_are_unavailable():
         raise RuntimeError("Авито недоступно")
 
     poller = AvitoPoller(
-        client=FakeAvito(chats, {}), pipeline=pipeline,
-        cursors=InMemoryCursorStore(), settings=_settings(),
-        items_provider=broken, now_fn=lambda: NOW,
+        client=FakeAvito(chats, {}),
+        pipeline=pipeline,
+        cursors=InMemoryCursorStore(),
+        settings=_settings(),
+        items_provider=broken,
+        now_fn=lambda: NOW,
     )
     await poller.run_pass()
     assert pipeline.events == []
@@ -360,7 +368,7 @@ async def test_own_items_survives_a_failed_refresh():
     provider = OwnItemIds(Flaky(), _settings(), monotonic=lambda: clock["t"])
 
     assert await provider() == {"111"}
-    clock["t"] = 10_000.0          # снимок протух, обновление упадёт
+    clock["t"] = 10_000.0  # снимок протух, обновление упадёт
     assert await provider() == {"111"}, "устаревший снимок лучше отсутствия"
 
 
@@ -370,6 +378,7 @@ async def test_get_listing_reuses_the_same_snapshot_as_call():
     десятка своих объявлений подряд била по /core/v1/items десяток раз за
     секунды и упиралась в лимит 25/минуту (429 Too Many Requests). get_listing
     обязан отдавать карточку из ТОГО ЖЕ снимка, не делая второго запроса."""
+
     class Counting:
         def __init__(self):
             self.calls = 0
@@ -420,6 +429,7 @@ async def test_get_listing_refreshes_when_the_snapshot_is_stale():
 # Дедуп между каналами — главное, ради чего дедуп переехал в конвейер
 # --------------------------------------------------------------------------
 
+
 async def test_webhook_and_poller_do_not_double_answer(monkeypatch):
     """Одно и то же сообщение из обоих каналов обязано дойти до агента один
     раз. Идентификаторы совпадают — проверено живьём на аккаунте заказчика
@@ -435,14 +445,25 @@ async def test_webhook_and_poller_do_not_double_answer(monkeypatch):
             raise AssertionError("до агента дойти не должно — тест про дедуп")
 
     pipeline = MessagePipeline(
-        store=InMemoryDialogStore(), agent_loop=Loop(), ops_service=None,
-        settings=_settings(), redis=redis, debounce_window_seconds=0,
+        store=InMemoryDialogStore(),
+        agent_loop=Loop(),
+        ops_service=None,
+        settings=_settings(),
+        redis=redis,
+        debounce_window_seconds=0,
     )
 
-    event = {"payload": {"value": {
-        "id": "m-1", "chat_id": "c1", "author_id": "buyer",
-        "item_id": 111, "content": {"text": "привет"},
-    }}}
+    event = {
+        "payload": {
+            "value": {
+                "id": "m-1",
+                "chat_id": "c1",
+                "author_id": "buyer",
+                "item_id": 111,
+                "content": {"text": "привет"},
+            }
+        }
+    }
 
     assert await pipeline.handle_message(event, source="webhook") is True
     # Второй канал с тем же message_id — до агента не доходит (за этим следит
@@ -471,13 +492,24 @@ async def test_failed_handling_releases_the_claim():
             raise RuntimeError("база недоступна")
 
     pipeline = MessagePipeline(
-        store=Exploding(), agent_loop=None, ops_service=None,
-        settings=_settings(), redis=redis, debounce_window_seconds=0,
+        store=Exploding(),
+        agent_loop=None,
+        ops_service=None,
+        settings=_settings(),
+        redis=redis,
+        debounce_window_seconds=0,
     )
-    event = {"payload": {"value": {
-        "id": "m-1", "chat_id": "c1", "author_id": "buyer",
-        "item_id": 111, "content": {"text": "привет"},
-    }}}
+    event = {
+        "payload": {
+            "value": {
+                "id": "m-1",
+                "chat_id": "c1",
+                "author_id": "buyer",
+                "item_id": 111,
+                "content": {"text": "привет"},
+            }
+        }
+    }
 
     assert await pipeline.handle_message(event, source="poller") is False
     assert "avito:seen_message:m-1" not in redis.store
@@ -488,23 +520,39 @@ async def test_failed_handling_releases_the_claim():
 # Эквивалентность события — поллер и вебхук обязаны дать одно и то же
 # --------------------------------------------------------------------------
 
+
 def test_built_event_reads_identically_to_a_real_webhook():
     """Если сборщик и разборщики разъедутся, симптомом будет не ошибка, а
     «агент почему-то отвечает не так»."""
-    webhook = {"payload": {"value": {
-        "id": "m-1", "chat_id": "c1", "author_id": "buyer-9",
-        "item_id": 7980589876, "chat_type": "u2i", "type": "text",
-        "content": {"text": "сколько стоит баня?"},
-    }}}
+    webhook = {
+        "payload": {
+            "value": {
+                "id": "m-1",
+                "chat_id": "c1",
+                "author_id": "buyer-9",
+                "item_id": 7980589876,
+                "chat_type": "u2i",
+                "type": "text",
+                "content": {"text": "сколько стоит баня?"},
+            }
+        }
+    }
     built = pl.build_event_from_polled_message(
         _message("m-1", NOW_TS, author="buyer-9", text="сколько стоит баня?"),
-        chat_id="c1", item_id="7980589876", chat_type="u2i",
+        chat_id="c1",
+        item_id="7980589876",
+        chat_type="u2i",
     )
 
     for extractor in (
-        pl.extract_message_id, pl.extract_chat_id, pl.extract_author_id,
-        pl.extract_item_id, pl.extract_chat_type, pl.extract_text,
-        pl.extract_message_type, pl.is_image_message,
+        pl.extract_message_id,
+        pl.extract_chat_id,
+        pl.extract_author_id,
+        pl.extract_item_id,
+        pl.extract_chat_type,
+        pl.extract_text,
+        pl.extract_message_type,
+        pl.is_image_message,
     ):
         assert extractor(built) == extractor(webhook), extractor.__name__
 
@@ -514,7 +562,10 @@ def test_built_event_keeps_item_id_a_string():
     молча не совпадает, то есть запрещённое объявление тихо становится
     разрешённым."""
     built = pl.build_event_from_polled_message(
-        _message("m-1", NOW_TS), chat_id="c1", item_id=8172444564, chat_type="u2i",
+        _message("m-1", NOW_TS),
+        chat_id="c1",
+        item_id=8172444564,
+        chat_type="u2i",
     )
     assert pl.extract_item_id(built) == "8172444564"
     assert isinstance(pl.extract_item_id(built), str)
@@ -524,7 +575,10 @@ def test_built_event_omits_item_id_for_chats_without_a_listing():
     """Ключа быть НЕ должно вовсе, а не должен он быть равным None: пустое
     значение читалось бы как строка."""
     built = pl.build_event_from_polled_message(
-        _message("m-1", NOW_TS), chat_id="c1", item_id=None, chat_type="u2u",
+        _message("m-1", NOW_TS),
+        chat_id="c1",
+        item_id=None,
+        chat_type="u2u",
     )
     assert pl.extract_item_id(built) is None
     assert "item_id" not in built["payload"]["value"]
@@ -532,9 +586,16 @@ def test_built_event_omits_item_id_for_chats_without_a_listing():
 
 def test_built_event_survives_an_image_message():
     built = pl.build_event_from_polled_message(
-        {"id": "m-1", "created": NOW_TS, "author_id": "b", "type": "image",
-         "content": {"image": {"sizes": {}}}},
-        chat_id="c1", item_id="111", chat_type="u2i",
+        {
+            "id": "m-1",
+            "created": NOW_TS,
+            "author_id": "b",
+            "type": "image",
+            "content": {"image": {"sizes": {}}},
+        },
+        chat_id="c1",
+        item_id="111",
+        chat_type="u2i",
     )
     assert pl.is_image_message(built) is True
     assert pl.extract_text(built) is None
@@ -543,6 +604,7 @@ def test_built_event_survives_an_image_message():
 # --------------------------------------------------------------------------
 # Пагинация и устойчивость
 # --------------------------------------------------------------------------
+
 
 async def test_chat_pagination_walks_every_page():
     chats = [_chat(f"c{i}", "111", NOW_TS - 100 * 3600, "buyer") for i in range(5)]
@@ -576,14 +638,12 @@ async def test_message_pagination_reaches_back_to_the_cursor():
     base = NOW_TS - 3600
     chats = [_chat("c1", "111", base + 5, "buyer")]
     # v3 отдаёт от свежих к старым.
-    messages = {"c1": [_message(f"m{i}", base + i, author="buyer")
-                       for i in range(5, 0, -1)]}
+    messages = {"c1": [_message(f"m{i}", base + i, author="buyer") for i in range(5, 0, -1)]}
     pipeline = FakePipeline()
     cursors = InMemoryCursorStore()
     cursors.rows["c1"] = CursorRecord("c1", base, ("m0",))
 
-    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors,
-                        own_items={"111"})
+    poller, _ = _poller(chats, messages, pipeline=pipeline, cursors=cursors, own_items={"111"})
     await poller.run_pass()
 
     # page_size=2, а сообщений 5 — все обязаны доехать, по возрастанию.
@@ -593,15 +653,16 @@ async def test_message_pagination_reaches_back_to_the_cursor():
 async def test_truncated_history_is_logged_not_swallowed(caplog):
     base = NOW_TS - 3600
     chats = [_chat("c1", "111", base + 6, "buyer")]
-    messages = {"c1": [_message(f"m{i}", base + i, author="buyer")
-                       for i in range(6, 0, -1)]}
+    messages = {"c1": [_message(f"m{i}", base + i, author="buyer") for i in range(6, 0, -1)]}
     cursors = InMemoryCursorStore()
     cursors.rows["c1"] = CursorRecord("c1", base, ("m0",))
 
     poller, _ = _poller(
-        chats, messages,
+        chats,
+        messages,
         settings=_settings(poller_messages_page_size=2, poller_max_message_pages=1),
-        cursors=cursors, own_items={"111"},
+        cursors=cursors,
+        own_items={"111"},
     )
     with caplog.at_level("WARNING"):
         stats = await poller.run_pass()
@@ -625,9 +686,12 @@ async def test_one_bad_chat_does_not_stop_the_others():
             return await FakeAvito.get_messages(self, chat_id, limit=limit, offset=offset)
 
     poller = AvitoPoller(
-        client=HalfBroken(chats, messages), pipeline=pipeline,
-        cursors=InMemoryCursorStore(), settings=_settings(),
-        items_provider=lambda: _resolved({"111"}), now_fn=lambda: NOW,
+        client=HalfBroken(chats, messages),
+        pipeline=pipeline,
+        cursors=InMemoryCursorStore(),
+        settings=_settings(),
+        items_provider=lambda: _resolved({"111"}),
+        now_fn=lambda: NOW,
     )
     stats = await poller.run_pass()
 
@@ -639,17 +703,17 @@ async def test_one_bad_chat_does_not_stop_the_others():
 # Захват
 # --------------------------------------------------------------------------
 
+
 async def test_second_replica_skips_the_pass():
     chats = [_chat("c1", "111", NOW_TS - 60, "buyer")]
     messages = {"c1": [_message("m1", NOW_TS - 60, author="buyer")]}
     redis = FakeRedis()
 
     first, _ = _poller(chats, messages, own_items={"111"}, redis=redis)
-    await first._acquire_lock()          # первая реплика ещё в проходе
+    await first._acquire_lock()  # первая реплика ещё в проходе
 
     pipeline = FakePipeline()
-    second, _ = _poller(chats, messages, pipeline=pipeline, own_items={"111"},
-                        redis=redis)
+    second, _ = _poller(chats, messages, pipeline=pipeline, own_items={"111"}, redis=redis)
     await second.run_pass()
 
     assert pipeline.events == []
@@ -663,8 +727,7 @@ async def test_lost_lock_stops_cursor_writes():
     redis = FakeRedis()
     cursors = InMemoryCursorStore()
 
-    poller, _ = _poller(chats, messages, cursors=cursors, own_items={"111"},
-                        redis=redis)
+    poller, _ = _poller(chats, messages, cursors=cursors, own_items={"111"}, redis=redis)
 
     original = poller._save_cursor
 

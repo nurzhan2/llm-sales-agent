@@ -7,9 +7,9 @@ FREE от заглушки означал бы, что агент обещает
 
 from __future__ import annotations
 
-from datetime import date as DateType, time as TimeType
+from datetime import date as DateType
+from datetime import time as TimeType
 from decimal import Decimal
-from typing import Optional
 
 from app.booking.base import (
     Availability,
@@ -28,8 +28,11 @@ class NoopBookingProvider:
         return []
 
     async def check_availability(
-        self, zone_id: str, date: DateType, start_time: Optional[TimeType] = None,
-        hours: Optional[int] = None,
+        self,
+        zone_id: str,
+        date: DateType,
+        start_time: TimeType | None = None,
+        hours: int | None = None,
     ) -> Availability:
         return Availability(AvailabilityStatus.UNKNOWN, reason=UNKNOWN_REASON)
 
@@ -42,7 +45,5 @@ class NoopBookingProvider:
     async def cancel_booking(self, booking_id: str) -> BookingResult:
         return BookingResult(success=False, error=UNKNOWN_REASON)
 
-    async def create_payment_link(
-        self, booking_id: str, amount: Decimal
-    ) -> Optional[PaymentLink]:
+    async def create_payment_link(self, booking_id: str, amount: Decimal) -> PaymentLink | None:
         return None

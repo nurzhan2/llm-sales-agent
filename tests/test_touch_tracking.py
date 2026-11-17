@@ -8,11 +8,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.clock import MOSCOW_TZ
 from app.agent.touch_tracking import (
     DIRECT_TOUCH_NUMBER,
     SOFT_TOUCH_NUMBER,
@@ -26,15 +25,17 @@ from app.agent.touch_tracking import (
     record_first_touch,
     reset_timer_on_reply,
 )
+from app.clock import MOSCOW_TZ
 from app.kb.loader import WorkingWindow
 
-NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 WINDOW = WorkingWindow(**{"from": "09:00", "to": "23:00"})
 
 
 # --------------------------------------------------------------------------
 # «Таймер срабатывает через 30 минут»
 # --------------------------------------------------------------------------
+
 
 def test_first_touch_arms_timer_thirty_minutes_out():
     state = record_first_touch(TouchState(), NOW, delay_minutes=30)
@@ -64,6 +65,7 @@ def test_due_after_thirty_minutes():
 # «Ответ клиента таймер сбрасывает»
 # --------------------------------------------------------------------------
 
+
 def test_client_reply_clears_pending_timer():
     state = record_first_touch(TouchState(), NOW, delay_minutes=30)
     reset = reset_timer_on_reply(state)
@@ -87,6 +89,7 @@ def test_after_reset_dialog_is_no_longer_due():
 # --------------------------------------------------------------------------
 # Прогрессия касаний: 2-е (мягкое) -> 3-е (прямое) -> дальше молчим
 # --------------------------------------------------------------------------
+
 
 def test_second_touch_uses_soft_template_and_reschedules():
     state = record_first_touch(TouchState(), NOW, delay_minutes=30)
@@ -117,15 +120,16 @@ def test_at_max_count_dialog_is_never_due_again():
 # «Отложенное сообщение не уходит в 3 ночи»
 # --------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "hour,minute,expected",
     [
-        (3, 0, False),      # 3 ночи — точно нет
-        (8, 59, False),     # минута до открытия
-        (9, 0, True),       # ровно открытие
-        (12, 0, True),      # день
-        (22, 59, True),     # минута до закрытия
-        (23, 0, False),     # ровно закрытие — уже нет
+        (3, 0, False),  # 3 ночи — точно нет
+        (8, 59, False),  # минута до открытия
+        (9, 0, True),  # ровно открытие
+        (12, 0, True),  # день
+        (22, 59, True),  # минута до закрытия
+        (23, 0, False),  # ровно закрытие — уже нет
         (23, 30, False),
         (0, 0, False),
     ],
@@ -151,7 +155,7 @@ def test_a_utc_moment_is_converted_to_moscow_before_comparing(utc_hour, expected
     — московское. Сравнение UTC-времени с московскими часами превращало окно
     в фактические 12:00–02:00 МСК: касания уходили в час ночи и не уходили
     с 9 до 12 утра."""
-    dt = datetime(2026, 8, 20, utc_hour, 0, tzinfo=timezone.utc)
+    dt = datetime(2026, 8, 20, utc_hour, 0, tzinfo=UTC)
 
     assert is_within_working_hours(dt, WINDOW) is expected, why
 
@@ -166,6 +170,7 @@ def test_a_naive_moment_is_taken_as_moscow():
 # --------------------------------------------------------------------------
 # Жалоба на цену эскалирует сразу до максимума
 # --------------------------------------------------------------------------
+
 
 def test_price_objection_forces_touch_count_to_max_and_clears_timer():
     state = record_first_touch(TouchState(), NOW, delay_minutes=30)

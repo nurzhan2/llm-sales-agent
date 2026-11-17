@@ -20,7 +20,8 @@ _send_photos) и помечает отправленные в `messages.image_id
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from app.kb.loader import KnowledgeBase
 

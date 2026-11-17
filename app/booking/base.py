@@ -12,11 +12,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date as DateType, time as TimeType
+from dataclasses import dataclass
+from datetime import date as DateType
+from datetime import time as TimeType
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 class AvailabilityStatus(str, Enum):
@@ -28,14 +29,14 @@ class AvailabilityStatus(str, Enum):
 @dataclass(frozen=True)
 class Availability:
     status: AvailabilityStatus
-    reason: Optional[str] = None
+    reason: str | None = None
     free_slots: tuple[str, ...] = ()
     # Длина сеанса, под который YCLIENTS посчитал free_slots (seance_length
     # из book_times, секунды). 0/None — у сотрудника-зоны нет привязанной
     # услуги, и свободное время начала значит только «этот момент не внутри
     # чужой записи». Нужна, чтобы проверить весь интервал брони, а не одно
     # время начала — см. app/booking/yclients.py:interval_is_free.
-    seance_seconds: Optional[int] = None
+    seance_seconds: int | None = None
 
     @property
     def is_known(self) -> bool:
@@ -46,14 +47,14 @@ class Availability:
 class Service:
     service_id: str
     title: str
-    duration_seconds: Optional[int] = None
+    duration_seconds: int | None = None
     # НЕ подтверждено заказчиком (в отличие от base_url/заголовков/конверта
     # в app/booking/yclients_endpoints.py) — только общепринятые для
     # /book_services поля YCLIENTS. Optional и заполняются защитно
     # (см. YClientsProvider.get_services): если реальный ответ называет их
     # иначе, поля просто останутся None, а не подставят чужое число.
-    price_min: Optional[int] = None
-    price_max: Optional[int] = None
+    price_min: int | None = None
+    price_max: int | None = None
 
 
 @dataclass(frozen=True)
@@ -83,16 +84,16 @@ class BookingRequest:
     # заблокировать 5, шестой час окажется свободным для чужой брони.
     occupied_hours: int
     guests: int
-    client_name: Optional[str] = None
-    client_phone: Optional[str] = None
-    comment: Optional[str] = None
+    client_name: str | None = None
+    client_phone: str | None = None
+    comment: str | None = None
 
 
 @dataclass(frozen=True)
 class BookingResult:
     success: bool
-    booking_id: Optional[str] = None
-    error: Optional[str] = None
+    booking_id: str | None = None
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -114,8 +115,11 @@ class BookingProvider(Protocol):
     async def get_services(self) -> list[Service]: ...
 
     async def check_availability(
-        self, zone_id: str, date: DateType, start_time: Optional[TimeType] = None,
-        hours: Optional[int] = None,
+        self,
+        zone_id: str,
+        date: DateType,
+        start_time: TimeType | None = None,
+        hours: int | None = None,
     ) -> Availability: ...
 
     async def get_free_slots(self, zone_id: str, date: DateType) -> Availability: ...
@@ -124,6 +128,4 @@ class BookingProvider(Protocol):
 
     async def cancel_booking(self, booking_id: str) -> BookingResult: ...
 
-    async def create_payment_link(
-        self, booking_id: str, amount: Decimal
-    ) -> Optional[PaymentLink]: ...
+    async def create_payment_link(self, booking_id: str, amount: Decimal) -> PaymentLink | None: ...

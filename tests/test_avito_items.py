@@ -12,14 +12,17 @@ import respx
 from app.channels import avito_endpoints as ep
 from app.channels.avito_items import AvitoItemsClient, Listing
 from app.config import Settings
-from tests.test_avito import FakeRedis, token_url  # переиспользуем фейк и хелпер
+from tests.test_avito import token_url  # переиспользуем фейк и хелпер
 
 
 @pytest.fixture
 def settings():
     return Settings(
-        avito_client_id="test_id", avito_client_secret="test_secret",
-        avito_user_id="777", dry_run=False, avito_max_retries=3,
+        avito_client_id="test_id",
+        avito_client_secret="test_secret",
+        avito_user_id="777",
+        dry_run=False,
+        avito_max_retries=3,
     )
 
 
@@ -42,10 +45,22 @@ async def test_list_all_items_single_page(settings):
             json={
                 "meta": {"page": 1, "per_page": 100},
                 "resources": [
-                    {"id": 1, "title": "Баня Гараж", "url": "https://avito.ru/1",
-                     "status": "active", "price": 2500, "address": "Тупиково"},
-                    {"id": 2, "title": "Купол", "url": "https://avito.ru/2",
-                     "status": "active", "price": None, "address": None},
+                    {
+                        "id": 1,
+                        "title": "Баня Гараж",
+                        "url": "https://avito.ru/1",
+                        "status": "active",
+                        "price": 2500,
+                        "address": "Тупиково",
+                    },
+                    {
+                        "id": 2,
+                        "title": "Купол",
+                        "url": "https://avito.ru/2",
+                        "status": "active",
+                        "price": None,
+                        "address": None,
+                    },
                 ],
             },
         )
@@ -55,7 +70,9 @@ async def test_list_all_items_single_page(settings):
     await client.aclose()
 
     assert len(listings) == 2
-    assert listings[0] == Listing("1", "Баня Гараж", "https://avito.ru/1", "active", 2500, "Тупиково")
+    assert listings[0] == Listing(
+        "1", "Баня Гараж", "https://avito.ru/1", "active", 2500, "Тупиково"
+    )
     assert listings[1].price is None
     assert listings[1].address is None
 
@@ -65,11 +82,25 @@ async def test_list_all_items_paginates(settings):
     """per_page=100 и первая страница полная -> должен запросить вторую."""
     _mock_token()
     full_page = [
-        {"id": i, "title": f"Item {i}", "url": None, "status": "active", "price": None, "address": None}
+        {
+            "id": i,
+            "title": f"Item {i}",
+            "url": None,
+            "status": "active",
+            "price": None,
+            "address": None,
+        }
         for i in range(100)
     ]
     second_page = [
-        {"id": 100, "title": "Последнее", "url": None, "status": "active", "price": None, "address": None}
+        {
+            "id": 100,
+            "title": "Последнее",
+            "url": None,
+            "status": "active",
+            "price": None,
+            "address": None,
+        }
     ]
 
     calls = {"n": 0}
@@ -114,7 +145,9 @@ async def test_list_all_items_passes_status_filter(settings):
 async def test_401_triggers_token_refresh(settings):
     tokens = iter(["stale", "fresh"])
     respx.post(token_url()).mock(
-        side_effect=lambda req: httpx.Response(200, json={"access_token": next(tokens), "expires_in": 3600})
+        side_effect=lambda req: httpx.Response(
+            200, json={"access_token": next(tokens), "expires_in": 3600}
+        )
     )
 
     calls: list[str] = []
@@ -158,6 +191,7 @@ def test_listing_is_a_plain_frozen_record():
 # CSV export shape (без сети — просто проверяем формат строк)
 # --------------------------------------------------------------------------
 
+
 def test_csv_rows_have_expected_columns():
     listings = [
         Listing("1", "Баня", "https://x/1", "active", 2500, "Тупиково"),
@@ -168,8 +202,14 @@ def test_csv_rows_have_expected_columns():
     writer.writerow(["item_id", "title", "url", "status", "price", "address"])
     for listing in listings:
         writer.writerow(
-            [listing.item_id, listing.title, listing.url or "", listing.status,
-             listing.price if listing.price is not None else "", listing.address or ""]
+            [
+                listing.item_id,
+                listing.title,
+                listing.url or "",
+                listing.status,
+                listing.price if listing.price is not None else "",
+                listing.address or "",
+            ]
         )
     buffer.seek(0)
     rows = list(csv.reader(buffer))

@@ -13,7 +13,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 
 
 def _dig(payload: dict, path: Iterable[str]) -> Any:
@@ -25,7 +26,7 @@ def _dig(payload: dict, path: Iterable[str]) -> Any:
     return node
 
 
-def _first_scalar(payload: dict, paths: Iterable[Iterable[str]]) -> Optional[str]:
+def _first_scalar(payload: dict, paths: Iterable[Iterable[str]]) -> str | None:
     for path in paths:
         value = _dig(payload, path)
         if isinstance(value, (str, int)) and str(value):
@@ -33,7 +34,7 @@ def _first_scalar(payload: dict, paths: Iterable[Iterable[str]]) -> Optional[str
     return None
 
 
-def extract_message_id(payload: dict) -> Optional[str]:
+def extract_message_id(payload: dict) -> str | None:
     """Идентификатор сообщения — ключ идемпотентности вебхука."""
     return _first_scalar(
         payload,
@@ -46,7 +47,7 @@ def extract_message_id(payload: dict) -> Optional[str]:
     )
 
 
-def extract_chat_id(payload: dict) -> Optional[str]:
+def extract_chat_id(payload: dict) -> str | None:
     return _first_scalar(
         payload,
         [
@@ -58,7 +59,7 @@ def extract_chat_id(payload: dict) -> Optional[str]:
     )
 
 
-def extract_author_id(payload: dict) -> Optional[str]:
+def extract_author_id(payload: dict) -> str | None:
     return _first_scalar(
         payload,
         [
@@ -70,7 +71,7 @@ def extract_author_id(payload: dict) -> Optional[str]:
     )
 
 
-def extract_item_id(payload: dict) -> Optional[str]:
+def extract_item_id(payload: dict) -> str | None:
     return _first_scalar(
         payload,
         [
@@ -109,8 +110,8 @@ def build_event_from_polled_message(
     message: dict,
     *,
     chat_id: str,
-    item_id: Optional[str],
-    chat_type: Optional[str],
+    item_id: str | None,
+    chat_type: str | None,
 ) -> dict:
     """Сообщение из `GET /messenger/v3/.../messages/` → событие вебхука.
 
@@ -167,7 +168,7 @@ def build_event_from_polled_message(
     }
 
 
-def extract_created(payload: dict) -> Optional[int]:
+def extract_created(payload: dict) -> int | None:
     """Unix-секунды создания сообщения — реальное время из Авито, а не
     момент, когда мы его увидели.
 
@@ -195,7 +196,7 @@ def extract_created(payload: dict) -> Optional[int]:
     return None
 
 
-def extract_chat_type(payload: dict) -> Optional[str]:
+def extract_chat_type(payload: dict) -> str | None:
     """Тип чата: "u2i" (по объявлению), "u2u"/"a2u" (по профилю).
 
     ПОДТВЕРЖДЕНО СПЕКОМ (components/schemas/WebhookMessage в официальном
@@ -216,7 +217,7 @@ def extract_chat_type(payload: dict) -> Optional[str]:
     )
 
 
-def extract_item_id_from_chat(chat: dict) -> Optional[str]:
+def extract_item_id_from_chat(chat: dict) -> str | None:
     """item_id из ответа GET /messenger/v2/.../chats/{chat_id}.
 
     ПОДТВЕРЖДЕНО СПЕКОМ (components/schemas/Chat): context.type == "item",
@@ -236,7 +237,7 @@ def extract_item_id_from_chat(chat: dict) -> Optional[str]:
     return str(item_id) if isinstance(item_id, (str, int)) and str(item_id) else None
 
 
-def extract_text(payload: dict) -> Optional[str]:
+def extract_text(payload: dict) -> str | None:
     value = _first_scalar(
         payload,
         [
@@ -259,7 +260,7 @@ def is_outgoing_echo(payload: dict, our_user_id: str) -> bool:
     return bool(author) and bool(our_user_id) and str(author) == str(our_user_id)
 
 
-def extract_message_type(payload: dict) -> Optional[str]:
+def extract_message_type(payload: dict) -> str | None:
     """Тип содержимого сообщения — "text"/"image"/"link"/"call" и т.п.
 
     НЕ подтверждено спеком — тот же слабый конверт вебхука, что и у text/
@@ -360,7 +361,7 @@ _SANITIZE_MAX_DEPTH = 8
 _SANITIZE_MAX_LIST_ITEMS = 5
 
 
-def _sanitize_for_logging(node: Any, key_hint: Optional[str] = None, depth: int = 0) -> Any:
+def _sanitize_for_logging(node: Any, key_hint: str | None = None, depth: int = 0) -> Any:
     if depth > _SANITIZE_MAX_DEPTH:
         return "…"
     if isinstance(node, dict):

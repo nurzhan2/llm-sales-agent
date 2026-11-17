@@ -27,7 +27,7 @@ import asyncio
 import base64
 import re
 import sys
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -45,7 +45,7 @@ PLACEHOLDERS = (
 )
 
 
-def describe(name: str, value: Optional[str]) -> str:
+def describe(name: str, value: str | None) -> str:
     """Характер значения без самого значения."""
     if not value:
         return f"{name}: НЕ ЗАДАН"
@@ -60,9 +60,7 @@ def describe(name: str, value: Optional[str]) -> str:
     if not value.isascii():
         flags.append("!!! не только ASCII")
     tail = ("  " + "; ".join(flags)) if flags else ""
-    return (
-        f"{name}: длина={len(value)}, начало={raw[1:3]}, конец={raw[-3:-1]}{tail}"
-    )
+    return f"{name}: длина={len(value)}, начало={raw[1:3]}, конец={raw[-3:-1]}{tail}"
 
 
 # Выданный токен — тоже секрет, и в этом скрипте он опаснее ключей: его
@@ -74,15 +72,16 @@ _TOKEN_RE = re.compile(r'("access_token"\s*:\s*")([^"]+)(")')
 def mask(text: str, secrets: tuple[str, ...]) -> str:
     if not text:
         return text
-    for value, label in zip(secrets, ("<CLIENT_ID>", "<CLIENT_SECRET>")):
+    for value, label in zip(secrets, ("<CLIENT_ID>", "<CLIENT_SECRET>"), strict=False):
         if value:
             text = text.replace(value, label)
     # Имя поля остаётся видимым — по нему и понятно, что токен выдан.
     return _TOKEN_RE.sub(r"\1<ACCESS_TOKEN>\3", text)
 
 
-async def probe(client: httpx.AsyncClient, label: str, secrets: tuple[str, ...],
-                url: str, **kwargs: Any) -> Optional[dict]:
+async def probe(
+    client: httpx.AsyncClient, label: str, secrets: tuple[str, ...], url: str, **kwargs: Any
+) -> dict | None:
     print("=" * 78)
     print(f"ПОПЫТКА: {label}")
     print("-" * 78)
@@ -136,11 +135,15 @@ async def main() -> int:
     print()
 
     if client_id in PLACEHOLDERS or client_secret in PLACEHOLDERS:
-        print("ВЫВОД БЕЗ ЗАПРОСОВ: в окружении лежат плейсхолдеры из "
-              ".env.example, а не ключи. Любой ответ Авито будет "
-              "`unauthorized_client`, и он не про формат запроса.")
-        print("Запускать эту диагностику нужно там, где заданы настоящие "
-              "ключи: `railway run python -m scripts.diagnose_avito_token`.")
+        print(
+            "ВЫВОД БЕЗ ЗАПРОСОВ: в окружении лежат плейсхолдеры из "
+            ".env.example, а не ключи. Любой ответ Авито будет "
+            "`unauthorized_client`, и он не про формат запроса."
+        )
+        print(
+            "Запускать эту диагностику нужно там, где заданы настоящие "
+            "ключи: `railway run python -m scripts.diagnose_avito_token`."
+        )
         return 2
 
     form = {
@@ -152,32 +155,50 @@ async def main() -> int:
 
     attempts = [
         # Первым — ровно то, что делает боевой код (app/channels/avito.py).
-        ("1. query string, /token (ТЕКУЩИЙ БОЕВОЙ КОД)",
-         f"{BASE_URL}/token", {"params": form}),
-        ("2. form-urlencoded в теле, /token (как в документации)",
-         f"{BASE_URL}/token", {"data": form}),
-        ("3. form-urlencoded в теле, /token/ (слеш на конце)",
-         f"{BASE_URL}/token/", {"data": form}),
-        ("4. query string, /token/ (слеш на конце)",
-         f"{BASE_URL}/token/", {"params": form}),
+        ("1. query string, /token (ТЕКУЩИЙ БОЕВОЙ КОД)", f"{BASE_URL}/token", {"params": form}),
+        (
+            "2. form-urlencoded в теле, /token (как в документации)",
+            f"{BASE_URL}/token",
+            {"data": form},
+        ),
+        (
+            "3. form-urlencoded в теле, /token/ (слеш на конце)",
+            f"{BASE_URL}/token/",
+            {"data": form},
+        ),
+        ("4. query string, /token/ (слеш на конце)", f"{BASE_URL}/token/", {"params": form}),
         # Другая ошибка здесь означает, что тело разбирается и транспорт
         # различается — то есть form/query отвергаются НЕ из-за формата.
-        ("5. JSON в теле, /token",
-         f"{BASE_URL}/token", {"json": form}),
-        ("6. form-urlencoded + явный Content-Type, /token",
-         f"{BASE_URL}/token",
-         {"data": form,
-          "headers": {"Content-Type": "application/x-www-form-urlencoded",
-                      "Accept": "application/json"}}),
-        ("7. form-urlencoded + scope, /token",
-         f"{BASE_URL}/token",
-         {"data": {**form, "scope": "messenger:read,messenger:write"}}),
-        ("8. HTTP Basic + grant_type в теле, /token",
-         f"{BASE_URL}/token",
-         {"data": {"grant_type": "client_credentials"},
-          "headers": {"Authorization": f"Basic {basic}"}}),
-        ("9. form-urlencoded, /oauth2/token (второй документированный путь)",
-         f"{BASE_URL}/oauth2/token", {"data": form}),
+        ("5. JSON в теле, /token", f"{BASE_URL}/token", {"json": form}),
+        (
+            "6. form-urlencoded + явный Content-Type, /token",
+            f"{BASE_URL}/token",
+            {
+                "data": form,
+                "headers": {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
+            },
+        ),
+        (
+            "7. form-urlencoded + scope, /token",
+            f"{BASE_URL}/token",
+            {"data": {**form, "scope": "messenger:read,messenger:write"}},
+        ),
+        (
+            "8. HTTP Basic + grant_type в теле, /token",
+            f"{BASE_URL}/token",
+            {
+                "data": {"grant_type": "client_credentials"},
+                "headers": {"Authorization": f"Basic {basic}"},
+            },
+        ),
+        (
+            "9. form-urlencoded, /oauth2/token (второй документированный путь)",
+            f"{BASE_URL}/oauth2/token",
+            {"data": form},
+        ),
     ]
 
     got_token = False
@@ -189,15 +210,16 @@ async def main() -> int:
 
     print("=" * 78)
     if got_token:
-        print("ИТОГ: токен выдаётся. Дальше — scripts/import_photos.py и "
-              "остальные вызовы API.")
+        print("ИТОГ: токен выдаётся. Дальше — scripts/import_photos.py и остальные вызовы API.")
         return 0
-    print("ИТОГ: токен не выдал ни один вариант. Если все ответы одинаковы "
-          "(`unauthorized_client`), а JSON-вариант отвечает иначе — дело не "
-          "в способе передачи параметров, а в самом приложении Авито: "
-          "проверьте, что ключи от ТОГО аккаунта и что интеграция "
-          "активирована в кабинете продавца. С этим выводом и полными "
-          "телами ответов выше можно идти в поддержку Авито.")
+    print(
+        "ИТОГ: токен не выдал ни один вариант. Если все ответы одинаковы "
+        "(`unauthorized_client`), а JSON-вариант отвечает иначе — дело не "
+        "в способе передачи параметров, а в самом приложении Авито: "
+        "проверьте, что ключи от ТОГО аккаунта и что интеграция "
+        "активирована в кабинете продавца. С этим выводом и полными "
+        "телами ответов выше можно идти в поддержку Авито."
+    )
     return 1
 
 

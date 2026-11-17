@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
@@ -27,7 +26,10 @@ def parse_callback(data: str) -> tuple[str, str]:
 
 
 def build_dispatcher(
-    service: OpsService, stats_provider=None, menu_service=None, selfcheck=None,
+    service: OpsService,
+    stats_provider=None,
+    menu_service=None,
+    selfcheck=None,
 ) -> Dispatcher:
     dp = Dispatcher()
 
@@ -137,9 +139,7 @@ def build_dispatcher(
         if len(parts) < 2 or parts[1] not in ("on", "off"):
             await message.answer("Использование: /dryrun on | /dryrun off")
             return
-        await message.answer(
-            await service.set_dry_run(message.from_user.id, parts[1] == "on")
-        )
+        await message.answer(await service.set_dry_run(message.from_user.id, parts[1] == "on"))
 
     @dp.message(Command("moderation"))
     async def on_moderation(message: Message) -> None:
@@ -308,8 +308,9 @@ def build_dispatcher(
             parts = (callback.data or "").split(":")
             field_key = parts[1] if len(parts) > 1 else ""
             zone_id = parts[2] if len(parts) > 2 else None
-            await _send(callback, await menu_service.start_edit(
-                callback.from_user.id, field_key, zone_id))
+            await _send(
+                callback, await menu_service.start_edit(callback.from_user.id, field_key, zone_id)
+            )
 
         @dp.callback_query(F.data.startswith("ok:"))
         async def on_confirm(callback: CallbackQuery) -> None:
@@ -357,7 +358,7 @@ def build_dispatcher(
         async def on_value(message: Message) -> None:
             reply = await menu_service.receive_value(message.from_user.id, message.text or "")
             if reply is None:
-                return          # не наш текст — молчим, как и раньше
+                return  # не наш текст — молчим, как и раньше
             await _send(message, reply)
 
     return dp
@@ -388,10 +389,12 @@ async def set_bot_commands(bot: Bot) -> None:
     from aiogram.types import BotCommand
 
     try:
-        await bot.set_my_commands([
-            BotCommand(command=name, description=description)
-            for name, description in BOT_COMMANDS
-        ])
+        await bot.set_my_commands(
+            [
+                BotCommand(command=name, description=description)
+                for name, description in BOT_COMMANDS
+            ]
+        )
         logger.info("telegram bot commands registered")
     except Exception:
         logger.exception("failed to register telegram bot commands")

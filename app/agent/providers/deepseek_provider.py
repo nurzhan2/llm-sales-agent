@@ -28,8 +28,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from decimal import Decimal
-from typing import Any, Optional, Sequence
+from typing import Any
 
 from app.agent.providers.base import LLMProvider
 
@@ -76,9 +77,9 @@ class DeepSeekProvider(LLMProvider):
         model: str,
         messages: list[dict],
         system: Any = None,
-        tools: Optional[Sequence[dict]] = None,
+        tools: Sequence[dict] | None = None,
         max_tokens: int,
-        tool_choice: Optional[dict] = None,
+        tool_choice: dict | None = None,
     ) -> Any:
         kwargs: dict[str, Any] = {
             "model": model,

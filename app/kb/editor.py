@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date as DateType, time as TimeType, timedelta
-from typing import Any, Optional
+from datetime import date as DateType
+from datetime import time as TimeType
+from datetime import timedelta
+from typing import Any
 
 from app.clock import moscow_today
 from app.kb.editable import EditableField, build_override_value, field_by_key
@@ -33,7 +35,7 @@ class EditPreview:
     """«Было X, станет Y» — то, что показывается оператору ДО сохранения."""
 
     field: EditableField
-    zone_id: Optional[str]
+    zone_id: str | None
     path: str
     previous_value: Any
     new_value: Any
@@ -47,7 +49,7 @@ class EditResult:
     kb: KnowledgeBase
     # Пересчитанный пример цены с новым значением (пункт 4 задачи) — или
     # None, если для этой зоны пример построить не удалось.
-    price_example: Optional[str]
+    price_example: str | None
 
 
 def human_value(value: Any) -> str:
@@ -83,12 +85,12 @@ class CatalogEditor:
     def _raw_with_active(self, records: list[OverrideRecord]) -> dict:
         return apply_overrides(read_raw_kb(self._kb_dir), to_overrides(records))
 
-    async def current_value(self, field: EditableField, zone_id: Optional[str] = None) -> Any:
+    async def current_value(self, field: EditableField, zone_id: str | None = None) -> Any:
         raw = self._raw_with_active(await self.store.list_active())
         return get_at(raw, self._path_for(field, zone_id))
 
     @staticmethod
-    def _path_for(field: EditableField, zone_id: Optional[str]) -> str:
+    def _path_for(field: EditableField, zone_id: str | None) -> str:
         if "{zone}" in field.path_template:
             if not zone_id:
                 raise OverrideError(f"Поле «{field.label}» требует указания зоны.")
@@ -98,13 +100,13 @@ class CatalogEditor:
     # -- правка -------------------------------------------------------------
 
     async def preview(
-        self, field_key: str, raw_input: str, user_id: int, zone_id: Optional[str] = None
+        self, field_key: str, raw_input: str, user_id: int, zone_id: str | None = None
     ) -> EditPreview:
         """Разобрать ввод, проверить И ПРИМЕНИТЬ на копии документа — но не
         сохранять. Валидация здесь, а не при подтверждении: оператор должен
         увидеть отказ сразу после ввода, а не после лишнего нажатия."""
         field = field_by_key(field_key)
-        parsed = field.parse(raw_input)          # доменные проверки
+        parsed = field.parse(raw_input)  # доменные проверки
         path = self._path_for(field, zone_id)
         new_value = build_override_value(field, parsed, user_id)
 
@@ -122,12 +124,18 @@ class CatalogEditor:
             ) from exc
 
         return EditPreview(
-            field=field, zone_id=zone_id, path=path,
-            previous_value=previous, new_value=new_value,
-            previous_human=human_value(previous), new_human=human_value(new_value),
+            field=field,
+            zone_id=zone_id,
+            path=path,
+            previous_value=previous,
+            new_value=new_value,
+            previous_human=human_value(previous),
+            new_human=human_value(new_value),
         )
 
-    async def apply(self, preview: EditPreview, user_id: int, comment: Optional[str] = None) -> EditResult:
+    async def apply(
+        self, preview: EditPreview, user_id: int, comment: str | None = None
+    ) -> EditResult:
         """Сохранить уже проверенную правку.
 
         Валидируем ВТОРОЙ раз, уже после записи: между `preview` и
@@ -138,10 +146,13 @@ class CatalogEditor:
         сломанной до следующего рестарта.
         """
         record = await self.store.add(
-            path=preview.path, value=preview.new_value,
+            path=preview.path,
+            value=preview.new_value,
             previous_value=preview.previous_value,
-            field_key=preview.field.key, zone_id=preview.zone_id,
-            changed_by=user_id, comment=comment,
+            field_key=preview.field.key,
+            zone_id=preview.zone_id,
+            changed_by=user_id,
+            comment=comment,
         )
         try:
             kb = await self.current_kb()
@@ -158,7 +169,7 @@ class CatalogEditor:
         )
         return EditResult(record=record, kb=kb, price_example=price_example(kb, preview.zone_id))
 
-    async def revert_last(self, user_id: int) -> Optional[EditResult]:
+    async def revert_last(self, user_id: int) -> EditResult | None:
         """Откат последней действующей правки. Строка не удаляется —
         помечается `reverted_at`: журнал обязан помнить и саму правку, и то,
         что её отменили."""
@@ -180,7 +191,8 @@ class CatalogEditor:
 # Пересчёт примера цены (пункт 4)
 # --------------------------------------------------------------------------
 
-def _next_weekend(today: Optional[DateType] = None) -> DateType:
+
+def _next_weekend(today: DateType | None = None) -> DateType:
     # Московская дата: пример цены оператор видит в своём календаре, а не в
     # UTC-сутках контейнера (app/clock.py).
     day = today or moscow_today()
@@ -191,7 +203,9 @@ def _next_weekend(today: Optional[DateType] = None) -> DateType:
     return day + timedelta(days=ahead)
 
 
-def price_example(kb: KnowledgeBase, zone_id: Optional[str], today: Optional[DateType] = None) -> Optional[str]:
+def price_example(
+    kb: KnowledgeBase, zone_id: str | None, today: DateType | None = None
+) -> str | None:
     """«Купол, суббота, 4 часа = 6000 ₽» — чтобы оператор увидел последствия
     правки сразу, а не узнал о них от клиента.
 
@@ -210,8 +224,11 @@ def price_example(kb: KnowledgeBase, zone_id: Optional[str], today: Optional[Dat
     hours = 4
     guests = zone.capacity.value if zone.capacity.is_resolved() else 4
     request = PriceRequest(
-        zone_id=zone_id, date=saturday, start_time=TimeType(14, 0),
-        hours=hours, guests=guests,
+        zone_id=zone_id,
+        date=saturday,
+        start_time=TimeType(14, 0),
+        hours=hours,
+        guests=guests,
     )
     result = quote(request, kb)
     if result.status != "ok" or result.total is None:

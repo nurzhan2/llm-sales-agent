@@ -11,8 +11,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence
 
 from app.agent.loop import PRICE_LIKE_WITHOUT_TOOL_CALL as _MONEY
 from app.agent.loop import invented_amounts
@@ -27,14 +27,28 @@ _PHONE = re.compile(r"(?:\+?7|8)[\s.\-]?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{2}[\s
 _CARD = re.compile(r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b")
 
 _BANKS = (
-    "озон банк", "озонбанк", "т-банк", "тинькофф", "сбербанк", "сбер",
-    "альфа-банк", "альфабанк", "втб", "райффайзен", "газпромбанк",
+    "озон банк",
+    "озонбанк",
+    "т-банк",
+    "тинькофф",
+    "сбербанк",
+    "сбер",
+    "альфа-банк",
+    "альфабанк",
+    "втб",
+    "райффайзен",
+    "газпромбанк",
 )
 
 # «забронировал», «бронь подтверждена» — обещание, которого агент давать не может
 _BOOKING_CLAIMS = (
-    "забронировал", "забронировала", "бронь подтверждена", "бронь закреплена",
-    "место за вами", "вы забронировали", "бронирую",
+    "забронировал",
+    "забронировала",
+    "бронь подтверждена",
+    "бронь закреплена",
+    "место за вами",
+    "вы забронировали",
+    "бронирую",
 )
 _MANAGER_MENTION = ("менеджер", "администратор", "свяж", "подтвердит", "уточню", "придержу")
 
@@ -64,7 +78,7 @@ class TurnUnderTest:
     tool_amounts: Sequence[str] = ()
     concession_granted: bool = False
     known_zone_ids: Sequence[str] = ()
-    applied_promo: Optional[str] = None
+    applied_promo: str | None = None
 
 
 def _mentions_money(text: str) -> bool:
@@ -166,8 +180,15 @@ _ZONE_WORDS = {
 
 # То, чего у комплекса нет вовсе — если агент это упомянул, он выдумал услугу.
 _NON_EXISTENT = (
-    "бассейн", "сауна-хамам", "хамам", "джакузи", "банкетный зал",
-    "гостиница", "отель", "коттедж", "вип-зона",
+    "бассейн",
+    "сауна-хамам",
+    "хамам",
+    "джакузи",
+    "банкетный зал",
+    "гостиница",
+    "отель",
+    "коттедж",
+    "вип-зона",
 )
 
 

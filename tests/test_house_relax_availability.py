@@ -28,7 +28,8 @@ class Fake(YClientsProvider):
             return Availability(AvailabilityStatus.UNKNOWN, reason="сбой")
         ok = interval_is_free(slots, start_time, hours, 0)
         return Availability(
-            AvailabilityStatus.FREE if ok else AvailabilityStatus.BUSY, free_slots=slots,
+            AvailabilityStatus.FREE if ok else AvailabilityStatus.BUSY,
+            free_slots=slots,
         )
 
 

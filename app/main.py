@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import redis.asyncio as redis_asyncio
@@ -193,9 +193,7 @@ def build_cost_guard(settings: Any, ops_bot: Any) -> DailyCostGuard:
 
         async def send() -> None:
             try:
-                await ops_bot.send_message(
-                    chat_id=settings.telegram_ops_chat_id, text=text
-                )
+                await ops_bot.send_message(chat_id=settings.telegram_ops_chat_id, text=text)
             except Exception:
                 logger.exception("cost limit alert send failed")
 
@@ -243,7 +241,7 @@ async def supervised_touch_scheduler(
     delay_minutes: int,
     max_count: int,
     interval_seconds: int,
-    now_fn: Any = lambda: datetime.now(timezone.utc),
+    now_fn: Any = lambda: datetime.now(UTC),
     can_send: Any = None,
     last_inbound: Any = None,
     min_inbound_ts: int = 0,
@@ -261,6 +259,7 @@ async def supervised_touch_scheduler(
     снимком, взятым один раз при старте, воркер продолжал бы будить
     клиентов по старому расписанию до ближайшего рестарта.
     """
+
     def _kb() -> KnowledgeBase:
         return kb() if callable(kb) else kb
 
@@ -268,11 +267,16 @@ async def supervised_touch_scheduler(
         try:
             current = _kb()
             await run_scheduler_pass(
-                store, current.concessions.policy.touch_templates,
-                current.catalog.constants.working_window, send, now_fn(),
-                delay_minutes=delay_minutes, max_count=max_count,
+                store,
+                current.concessions.policy.touch_templates,
+                current.catalog.constants.working_window,
+                send,
+                now_fn(),
+                delay_minutes=delay_minutes,
+                max_count=max_count,
                 can_send=can_send,
-                last_inbound=last_inbound, min_inbound_ts=min_inbound_ts,
+                last_inbound=last_inbound,
+                min_inbound_ts=min_inbound_ts,
             )
         except asyncio.CancelledError:
             raise
@@ -406,7 +410,8 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "Фильтр объявлений: БЕЛЫЙ список (%d шт.), он в приоритете — "
             "чёрный список НЕ применяется. Разрешены только: %s",
-            len(settings.avito_allowed_items), ", ".join(settings.avito_allowed_items),
+            len(settings.avito_allowed_items),
+            ", ".join(settings.avito_allowed_items),
         )
     elif settings.avito_blocked_items:
         # Тип каждого элемента печатается намеренно: item_id в API Авито —
@@ -416,9 +421,7 @@ async def lifespan(app: FastAPI):
         logger.info(
             "Фильтр объявлений: чёрный список (%d шт.): %s",
             len(settings.avito_blocked_items),
-            ", ".join(
-                f"{item!r}({type(item).__name__})" for item in settings.avito_blocked_items
-            ),
+            ", ".join(f"{item!r}({type(item).__name__})" for item in settings.avito_blocked_items),
         )
     else:
         logger.warning(
@@ -438,7 +441,7 @@ async def lifespan(app: FastAPI):
     if not settings.avito_webhook_secret.get_secret_value():
         logger.warning(
             "AVITO_WEBHOOK_SECRET не задан — вебхук будет отклонять все запросы. "
-            "Сгенерируйте: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+            'Сгенерируйте: python -c "import secrets; print(secrets.token_urlsafe(32))"'
         )
 
     # from_url сам распознаёт rediss:// и переключает соединение на TLS
@@ -506,7 +509,9 @@ async def lifespan(app: FastAPI):
     # же нужен воркеру отложенных касаний ниже для очереди на одобрение в
     # DRY_RUN, независимо от того, есть ли кому её показать в Telegram.
     ops_service = OpsService(
-        store=SqlAlchemyOpsStore(get_sessionmaker()), settings=settings, redis=redis_client,
+        store=SqlAlchemyOpsStore(get_sessionmaker()),
+        settings=settings,
+        redis=redis_client,
     )
     app.state.ops_service = ops_service
 
@@ -564,7 +569,9 @@ async def lifespan(app: FastAPI):
     app.state.item_scope_resolver = item_scope_resolver
     item_scope_task = asyncio.create_task(
         supervised_item_scope_refresh(
-            avito_items_client, item_scope_store, settings,
+            avito_items_client,
+            item_scope_store,
+            settings,
             interval_seconds=settings.poller_items_refresh_seconds,
         )
     )
@@ -647,7 +654,9 @@ async def lifespan(app: FastAPI):
                 # Функция, а не снимок: рабочее окно правится из Telegram на
                 # лету (app/ops/menu_service.py), и воркер обязан видеть
                 # правку без рестарта — см. докстринг.
-                touch_store, lambda: app.state.kb, touch_sender,
+                touch_store,
+                lambda: app.state.kb,
+                touch_sender,
                 delay_minutes=settings.touch_reminder_delay_minutes,
                 max_count=settings.touch_max_count,
                 interval_seconds=settings.touch_scheduler_interval_seconds,
@@ -665,7 +674,8 @@ async def lifespan(app: FastAPI):
         logger.info(
             "touch scheduler: started (TOUCH_ENABLED=true) — агент может "
             "напомнить о себе через %d мин молчания, максимум %d раза",
-            settings.touch_reminder_delay_minutes, settings.touch_max_count,
+            settings.touch_reminder_delay_minutes,
+            settings.touch_max_count,
         )
 
     # Конвейер обработки входящих — последнее звено: вебхук → агент → ответ.
@@ -699,7 +709,8 @@ async def lifespan(app: FastAPI):
         logger.error(
             "DAILY_COST_LIMIT_RUB=%s был исчерпан ещё до старта (потрачено "
             "%s ₽) — агент поднят на паузе, снять только через /resume",
-            settings.daily_cost_limit_rub, cost_guard.spent,
+            settings.daily_cost_limit_rub,
+            cost_guard.spent,
         )
     app.state.cost_guard = cost_guard
 
@@ -787,8 +798,8 @@ async def lifespan(app: FastAPI):
         # Флаг включён, но переключатель заблокирован (app/booking/
         # readiness.py): брони не ставятся, и в логе — ровно почему.
         logger.error(
-            "AUTO_BOOKING_ENABLED=true, но автобронирование НЕ ГОТОВО и не "
-            "работает: %s", describe_blockers(auto_booking_blockers(app.state.kb)),
+            "AUTO_BOOKING_ENABLED=true, но автобронирование НЕ ГОТОВО и не работает: %s",
+            describe_blockers(auto_booking_blockers(app.state.kb)),
         )
     elif settings.auto_booking_enabled:
         logger.warning(
@@ -825,7 +836,8 @@ async def lifespan(app: FastAPI):
             "(потрачено сегодня: %s ₽). При превышении агент уходит на паузу; "
             "счётчик обнуляется в полночь по Москве, пауза снимается только "
             "командой /resume",
-            settings.daily_cost_limit_rub, cost_guard.spent,
+            settings.daily_cost_limit_rub,
+            cost_guard.spent,
         )
 
     if settings.outbound_daily_limit <= 0:
@@ -890,7 +902,8 @@ async def lifespan(app: FastAPI):
         logger.info(
             "poller: запущен, интервал %d с, AGENT_MIN_INBOUND_TS=%d "
             "(предупреждение о пороге — в общем логе старта выше, если он не поднят)",
-            settings.poller_interval_seconds, settings.agent_min_inbound_ts,
+            settings.poller_interval_seconds,
+            settings.agent_min_inbound_ts,
         )
     else:
         logger.warning(
@@ -911,9 +924,7 @@ async def lifespan(app: FastAPI):
             settings.webhook_resubscribe_interval_hours,
         )
     else:
-        logger.warning(
-            "PUBLIC_BASE_URL не задан — суточная перепривязка вебхука не запущена."
-        )
+        logger.warning("PUBLIC_BASE_URL не задан — суточная перепривязка вебхука не запущена.")
 
     # Воркер таймаута запроса на скидку — отдельной задачей, не частью
     # воркера касаний выше: разный ритм (минуты, а не полчаса-час) и разная
@@ -967,24 +978,27 @@ async def lifespan(app: FastAPI):
 
     async def run_selfcheck() -> str:
         facts = await selfcheck_mod.collect_facts(
-            session_factory=get_sessionmaker(), items_client=avito_items_client,
-            avito_client=avito_client, booking_provider=booking_provider,
-            zone_mapping=zone_mapping, settings=settings,
+            session_factory=get_sessionmaker(),
+            items_client=avito_items_client,
+            avito_client=avito_client,
+            booking_provider=booking_provider,
+            zone_mapping=zone_mapping,
+            settings=settings,
         )
         return selfcheck_mod.analyze(facts, app.state.kb).render()[:4000]
 
     app.state.run_selfcheck = run_selfcheck
     selfcheck_task: asyncio.Task | None = None
-    if (
-        ops_bot is not None and settings.telegram_ops_chat_id
-        and settings.selfcheck_enabled
-    ):
+    if ops_bot is not None and settings.telegram_ops_chat_id and settings.selfcheck_enabled:
+
         async def send_selfcheck(text_: str) -> None:
             await ops_bot.send_message(chat_id=settings.telegram_ops_chat_id, text=text_)
 
         selfcheck_task = asyncio.create_task(
             selfcheck_mod.supervised_selfcheck(
-                run_selfcheck, send_selfcheck, hour_msk=settings.selfcheck_hour_msk,
+                run_selfcheck,
+                send_selfcheck,
+                hour_msk=settings.selfcheck_hour_msk,
             )
         )
         logger.info("selfcheck: ежедневно в %02d:00 МСК", settings.selfcheck_hour_msk)

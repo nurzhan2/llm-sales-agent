@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
 
 import httpx
 
@@ -25,7 +24,7 @@ from app.webhooks import webhook_path
 logger = logging.getLogger("parmangal.avito.webhook")
 
 
-def webhook_url(base_url: str, settings: Optional[Settings] = None) -> str:
+def webhook_url(base_url: str, settings: Settings | None = None) -> str:
     """Полный адрес вебхука. Содержит секрет — в лог не отдавать."""
     settings = settings or get_settings()
     return base_url.rstrip("/") + webhook_path(settings.require_webhook_secret())
@@ -38,9 +37,9 @@ def webhook_url_for_display(base_url: str) -> str:
 async def _call(
     spec: tuple[str, str],
     payload: dict,
-    settings: Optional[Settings] = None,
-    auth: Optional[AvitoAuth] = None,
-    client: Optional[httpx.AsyncClient] = None,
+    settings: Settings | None = None,
+    auth: AvitoAuth | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> dict:
     settings = settings or get_settings()
     token = await (auth or AvitoAuth(settings)).get_token()
@@ -66,36 +65,40 @@ async def _call(
 
 async def subscribe(
     base_url: str,
-    settings: Optional[Settings] = None,
-    auth: Optional[AvitoAuth] = None,
-    client: Optional[httpx.AsyncClient] = None,
+    settings: Settings | None = None,
+    auth: AvitoAuth | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> dict:
     settings = settings or get_settings()
     return await _call(
-        ep.WEBHOOK_SUBSCRIBE, {"url": webhook_url(base_url, settings)},
-        settings=settings, auth=auth, client=client,
+        ep.WEBHOOK_SUBSCRIBE,
+        {"url": webhook_url(base_url, settings)},
+        settings=settings,
+        auth=auth,
+        client=client,
     )
 
 
 async def unsubscribe(
     base_url: str,
-    settings: Optional[Settings] = None,
-    auth: Optional[AvitoAuth] = None,
-    client: Optional[httpx.AsyncClient] = None,
+    settings: Settings | None = None,
+    auth: AvitoAuth | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> dict:
     settings = settings or get_settings()
     return await _call(
-        ep.WEBHOOK_UNSUBSCRIBE, {"url": webhook_url(base_url, settings)},
-        settings=settings, auth=auth, client=client,
+        ep.WEBHOOK_UNSUBSCRIBE,
+        {"url": webhook_url(base_url, settings)},
+        settings=settings,
+        auth=auth,
+        client=client,
     )
 
 
 async def list_subscriptions(
-    settings: Optional[Settings] = None,
-    auth: Optional[AvitoAuth] = None,
-    client: Optional[httpx.AsyncClient] = None,
+    settings: Settings | None = None,
+    auth: AvitoAuth | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> dict:
     # Именно POST — так в спеке, см. avito_endpoints.LIST_SUBSCRIPTIONS.
-    return await _call(
-        ep.LIST_SUBSCRIPTIONS, {}, settings=settings, auth=auth, client=client
-    )
+    return await _call(ep.LIST_SUBSCRIPTIONS, {}, settings=settings, auth=auth, client=client)

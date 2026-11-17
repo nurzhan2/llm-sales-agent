@@ -26,7 +26,7 @@ import time as time_mod
 from dataclasses import dataclass
 from datetime import date as DateType
 from datetime import time as TimeType
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("parmangal.holds")
 
@@ -38,12 +38,14 @@ KEY = "hold:{zone_id}:{date}"
 @dataclass(frozen=True)
 class Hold:
     owner: str
-    start: int   # минуты от полуночи
+    start: int  # минуты от полуночи
     end: int
     expires_at: float
 
     def label(self) -> str:
-        return f"{self.start // 60:02d}:{self.start % 60:02d}–{self.end // 60:02d}:{self.end % 60:02d}"
+        return (
+            f"{self.start // 60:02d}:{self.start % 60:02d}–{self.end // 60:02d}:{self.end % 60:02d}"
+        )
 
 
 def _minutes(t: TimeType) -> int:
@@ -56,15 +58,23 @@ class RedisHoldStore:
         self.now_fn = now_fn
 
     async def add(
-        self, zone_id: str, date: DateType, start: TimeType, hours: int,
-        owner: str, ttl: int,
+        self,
+        zone_id: str,
+        date: DateType,
+        start: TimeType,
+        hours: int,
+        owner: str,
+        ttl: int,
     ) -> None:
         key = KEY.format(zone_id=zone_id, date=date.isoformat())
         begin = _minutes(start)
         expires = self.now_fn() + ttl
         current = await self._get(key, owner)
-        if current is not None and current.expires_at > expires and (
-            current.start, current.end) == (begin, begin + hours * 60):
+        if (
+            current is not None
+            and current.expires_at > expires
+            and (current.start, current.end) == (begin, begin + hours * 60)
+        ):
             return  # не укорачиваем более длинную бронь того же слота
         value = json.dumps({"s": begin, "e": begin + hours * 60, "x": expires})
         try:
@@ -92,17 +102,20 @@ class RedisHoldStore:
         return sorted(out, key=lambda h: h.start)
 
     async def conflicts(
-        self, zone_id: str, date: DateType, start: TimeType, hours: Optional[int],
+        self,
+        zone_id: str,
+        date: DateType,
+        start: TimeType,
+        hours: int | None,
         owner: str,
     ) -> list[Hold]:
         begin = _minutes(start)
         end = begin + (hours or 1) * 60
         return [
-            h for h in await self.others(zone_id, date, owner)
-            if h.start < end and begin < h.end
+            h for h in await self.others(zone_id, date, owner) if h.start < end and begin < h.end
         ]
 
-    async def _get(self, key: str, owner: str) -> Optional[Hold]:
+    async def _get(self, key: str, owner: str) -> Hold | None:
         try:
             value = await self.redis.hget(key, owner)
         except Exception:
@@ -110,11 +123,12 @@ class RedisHoldStore:
         return _parse(owner, value) if value else None
 
 
-def _parse(owner: str, value: Any) -> Optional[Hold]:
+def _parse(owner: str, value: Any) -> Hold | None:
     try:
         data = json.loads(value.decode() if isinstance(value, bytes) else value)
-        return Hold(owner=owner, start=int(data["s"]), end=int(data["e"]),
-                    expires_at=float(data["x"]))
+        return Hold(
+            owner=owner, start=int(data["s"]), end=int(data["e"]), expires_at=float(data["x"])
+        )
     except Exception:
         return None
 

@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -52,6 +52,7 @@ def service(settings, sent):
 # Доступ
 # --------------------------------------------------------------------------
 
+
 def test_only_allowed_users_pass(service):
     assert service.is_allowed(ALLOWED_USER) is True
     assert service.is_allowed(STRANGER) is False
@@ -68,6 +69,7 @@ def test_empty_allowlist_means_nobody_not_everybody():
 # Карточка диалога
 # --------------------------------------------------------------------------
 
+
 def test_card_marks_dry_run_as_not_sent():
     card = DialogCard("c1", "Баня", "Борис", "Сколько стоит?", "3 ч × 3500 ₽", dry_run=True)
     text = render_dialog_card(card)
@@ -83,8 +85,14 @@ def test_card_without_dry_run_has_no_warning():
 
 def test_card_shows_escalation():
     card = DialogCard(
-        "c1", "Баня", None, "?", "уточню", dry_run=True,
-        escalated=True, escalation_reason="цена не подтверждена",
+        "c1",
+        "Баня",
+        None,
+        "?",
+        "уточню",
+        dry_run=True,
+        escalated=True,
+        escalation_reason="цена не подтверждена",
     )
     text = render_dialog_card(card)
     assert "🔴" in text and "цена не подтверждена" in text
@@ -114,6 +122,7 @@ def test_keyboard_switches_takeover_and_return():
 # --------------------------------------------------------------------------
 # Модерация
 # --------------------------------------------------------------------------
+
 
 async def test_approve_sends_once(service, sent):
     await service.queue_reply("c1", "Здравствуйте! Свободно.")
@@ -168,6 +177,7 @@ async def test_moderation_counters_feed_stats(service):
 # Перехват
 # --------------------------------------------------------------------------
 
+
 async def test_takeover_silences_agent(service):
     await service.takeover("c1", ALLOWED_USER)
     allowed, reason = await service.should_agent_reply("c1")
@@ -194,13 +204,17 @@ async def test_a_chat_taken_yesterday_is_not_returned_yet():
     рано незачем. Проверяем ГРАНИЦУ, а не только «когда-нибудь вернётся»."""
     service = OpsService(
         store=InMemoryOpsStore(),
-        settings=Settings(telegram_allowed_users=[ALLOWED_USER], dry_run=True,
-                          takeover_mode="permanent"),
+        settings=Settings(
+            telegram_allowed_users=[ALLOWED_USER], dry_run=True, takeover_mode="permanent"
+        ),
     )
-    await service.store.set_flags("c1", ChatFlags(
-        is_human_takeover=True,
-        takeover_at=datetime.now(timezone.utc) - timedelta(hours=25),
-    ))
+    await service.store.set_flags(
+        "c1",
+        ChatFlags(
+            is_human_takeover=True,
+            takeover_at=datetime.now(UTC) - timedelta(hours=25),
+        ),
+    )
 
     assert await service.auto_return_if_stale("c1") is False
     allowed, _ = await service.should_agent_reply("c1")
@@ -214,18 +228,26 @@ async def test_the_configured_hours_are_actually_read():
     и тестом не ловится — мутационный разбор 2026-09-06 это и показал.
     Значение здесь нарочно НЕдефолтное.
     """
-    settings = Settings(telegram_allowed_users=[ALLOWED_USER], dry_run=True,
-                        takeover_mode="permanent", takeover_auto_return_hours=1)
+    settings = Settings(
+        telegram_allowed_users=[ALLOWED_USER],
+        dry_run=True,
+        takeover_mode="permanent",
+        takeover_auto_return_hours=1,
+    )
     service = OpsService(store=InMemoryOpsStore(), settings=settings)
-    await service.store.set_flags("c1", ChatFlags(
-        is_human_takeover=True,
-        takeover_at=datetime.now(timezone.utc) - timedelta(hours=2),
-    ))
+    await service.store.set_flags(
+        "c1",
+        ChatFlags(
+            is_human_takeover=True,
+            takeover_at=datetime.now(UTC) - timedelta(hours=2),
+        ),
+    )
 
     assert await service.auto_return_if_stale("c1") is True
-    assert any(a["action"] == "auto_return"
-               and a["payload"]["reason"] == "1ч без активности"
-               for a in service.store.actions), service.store.actions
+    assert any(
+        a["action"] == "auto_return" and a["payload"]["reason"] == "1ч без активности"
+        for a in service.store.actions
+    ), service.store.actions
 
 
 async def test_auto_return_after_the_configured_hours():
@@ -235,12 +257,13 @@ async def test_auto_return_after_the_configured_hours():
     сломано."""
     service = OpsService(
         store=InMemoryOpsStore(),
-        settings=Settings(telegram_allowed_users=[ALLOWED_USER], dry_run=True,
-                          takeover_mode="permanent"),
+        settings=Settings(
+            telegram_allowed_users=[ALLOWED_USER], dry_run=True, takeover_mode="permanent"
+        ),
     )
     flags = ChatFlags(
         is_human_takeover=True,
-        takeover_at=datetime.now(timezone.utc) - timedelta(hours=73),
+        takeover_at=datetime.now(UTC) - timedelta(hours=73),
     )
     await service.store.set_flags("c1", flags)
 
@@ -259,12 +282,13 @@ async def test_no_auto_return_before_timeout(sent):
     два часа означают давно истёкшее окно (см. тесты режимов ниже)."""
     service = OpsService(
         store=InMemoryOpsStore(),
-        settings=Settings(telegram_allowed_users=[ALLOWED_USER], dry_run=True,
-                          takeover_mode="permanent"),
+        settings=Settings(
+            telegram_allowed_users=[ALLOWED_USER], dry_run=True, takeover_mode="permanent"
+        ),
     )
     flags = ChatFlags(
         is_human_takeover=True,
-        takeover_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        takeover_at=datetime.now(UTC) - timedelta(hours=2),
     )
     await service.store.set_flags("c1", flags)
     assert await service.auto_return_if_stale("c1") is False
@@ -277,6 +301,7 @@ def test_should_auto_return_ignores_free_chats():
 # --------------------------------------------------------------------------
 # Стопоры
 # --------------------------------------------------------------------------
+
 
 async def test_pause_stops_every_chat(service):
     await service.pause_all(ALLOWED_USER)
@@ -295,6 +320,7 @@ async def test_resume_restores(service):
 # Аварийный рубильник (/stop, /resume) — persisted в Redis, читает
 # OutboundGate на каждой отправке (см. app/channels/kill_switch.py).
 # --------------------------------------------------------------------------
+
 
 class _FakeRedis:
     def __init__(self):
@@ -317,7 +343,10 @@ def service_with_redis(settings, sent):
         sent.append((chat_id, text))
 
     return OpsService(
-        store=InMemoryOpsStore(), settings=settings, send_to_avito=send, redis=_FakeRedis(),
+        store=InMemoryOpsStore(),
+        settings=settings,
+        send_to_avito=send,
+        redis=_FakeRedis(),
     )
 
 
@@ -375,6 +404,7 @@ async def test_dryrun_off_warns_loudly(service):
 # /moderation — переключение режима на лету, без передеплоя
 # --------------------------------------------------------------------------
 
+
 async def test_moderation_mode_defaults_to_concessions_only(settings):
     assert settings.moderation_mode == "concessions_only"
 
@@ -388,7 +418,7 @@ async def test_set_moderation_mode_switches_live_without_redeploy(service, setti
     message = await service.set_moderation_mode(ALLOWED_USER, "off")
 
     assert "concessions_only → off" in message
-    assert settings.moderation_mode == "off"          # тот же объект настроек, что видит пайплайн
+    assert settings.moderation_mode == "off"  # тот же объект настроек, что видит пайплайн
     actions = [a for a in service.store.actions if a["action"] == "set_moderation_mode"]
     assert actions and actions[0]["payload"] == {"from": "concessions_only", "to": "off"}
 
@@ -417,6 +447,7 @@ async def test_set_moderation_mode_all_three_values_are_accepted(service, settin
 # --------------------------------------------------------------------------
 # LLM-провайдер (промт №12)
 # --------------------------------------------------------------------------
+
 
 async def test_show_provider_reports_current_and_no_fallback(service):
     message = await service.show_provider()
@@ -452,6 +483,7 @@ async def test_set_provider_is_a_noop_when_already_active(service, settings):
 # Журнал действий
 # --------------------------------------------------------------------------
 
+
 async def test_every_action_is_logged_with_user_id(service):
     await service.takeover("c1", ALLOWED_USER)
     await service.queue_reply("c1", "t")
@@ -465,10 +497,15 @@ async def test_every_action_is_logged_with_user_id(service):
 # Уведомления об уступках и эскалациях
 # --------------------------------------------------------------------------
 
+
 def test_concession_notification_shows_loss_and_provisional_flag():
     text = render_concession(
-        "c1", tier=6, kind="price", trigger="price_objection",
-        revenue_delta=Decimal("-3000"), provisional=True,
+        "c1",
+        tier=6,
+        kind="price",
+        trigger="price_objection",
+        revenue_delta=Decimal("-3000"),
+        provisional=True,
         offer_template="Могу зафиксировать 2500 ₽ в час, если бронируем сегодня.",
     )
     assert "-3000" in text
@@ -477,9 +514,7 @@ def test_concession_notification_shows_loss_and_provisional_flag():
 
 
 def test_concession_without_provisional_has_no_warning():
-    text = render_concession(
-        "c1", 5, "price", "hours_objection", Decimal("-1500"), False, "текст"
-    )
+    text = render_concession("c1", 5, "price", "hours_objection", Decimal("-1500"), False, "текст")
     assert "предварительное" not in text
 
 
@@ -490,8 +525,13 @@ def test_escalation_marks_urgency():
 
 def test_stats_reports_clean_approval_share():
     text = render_stats(
-        dialogs=10, leads=3, escalations=2, cost_rub=Decimal("120"),
-        approved=9, edited=1, rejected=0,
+        dialogs=10,
+        leads=3,
+        escalations=2,
+        cost_rub=Decimal("120"),
+        approved=9,
+        edited=1,
+        rejected=0,
     )
     assert "90%" in text
     assert "120" in text
@@ -520,6 +560,7 @@ def test_digest_lists_leads_and_unanswered_topics():
 # Разбор callback
 # --------------------------------------------------------------------------
 
+
 def test_callback_parsing():
     assert parse_callback("approve:c-123") == ("approve", "c-123")
     assert parse_callback("takeover:abc") == ("takeover", "abc")
@@ -539,6 +580,7 @@ def test_callback_parsing():
 # через lifespan.
 # --------------------------------------------------------------------------
 
+
 async def test_approved_reply_to_a_blocked_chat_is_not_delivered():
     from app.channels.outbound_gate import ListingNotAllowed, OutboundGate
 
@@ -551,10 +593,10 @@ async def test_approved_reply_to_a_blocked_chat_is_not_delivered():
             return {"ok": True}
 
     async def lookup(chat_id: str):
-        return "8204183112"    # вакансия менеджера — в чёрном списке
+        return "8204183112"  # вакансия менеджера — в чёрном списке
 
     client = _Client()
-    gate = OutboundGate(client, Settings(), lookup)   # пять id заблокированы по умолчанию
+    gate = OutboundGate(client, Settings(), lookup)  # пять id заблокированы по умолчанию
     service = OpsService(
         store=InMemoryOpsStore(),
         settings=Settings(telegram_allowed_users=[ALLOWED_USER], dry_run=True),
@@ -601,6 +643,7 @@ async def test_approved_reply_to_an_allowed_chat_is_delivered():
 #
 # До этой команды исчерпанный лимит снимался только правкой в базе руками.
 # --------------------------------------------------------------------------
+
 
 async def test_reset_lets_the_agent_reply_again(service):
     """Главное свойство: после сброса should_agent_reply снова пропускает."""
@@ -678,6 +721,7 @@ async def test_reset_is_written_to_the_action_log(service):
 # Лимит ответов — настройка, а не константа
 # --------------------------------------------------------------------------
 
+
 def test_reply_limit_reads_the_new_env_name(monkeypatch):
     monkeypatch.setenv("AGENT_MAX_REPLIES_PER_CHAT", "7")
     assert Settings().max_agent_replies_per_chat == 7
@@ -750,8 +794,12 @@ def test_handoff_card_says_the_booking_does_not_exist_yet():
 
 def test_handoff_card_shows_promo_hours_both_ways():
     text = render_booking_handoff(
-        {**HANDOFF_CARD, "occupied_hours": 6, "billable_hours": 5,
-         "applied_promo": "sixth_hour_free"}
+        {
+            **HANDOFF_CARD,
+            "occupied_hours": 6,
+            "billable_hours": 5,
+            "applied_promo": "sixth_hour_free",
+        }
     )
     assert "занять 6" in text
     assert "оплачено 5" in text
@@ -796,7 +844,7 @@ def test_the_unknown_slot_warning_stands_above_the_booking_data():
     first_field_at = next(i for i, line in enumerate(lines) if line.startswith("Зона:"))
 
     assert warning_at < first_field_at
-    assert warning_at <= 2                       # сразу под заголовком, не в подвале
+    assert warning_at <= 2  # сразу под заголовком, не в подвале
 
 
 # --------------------------------------------------------------------------
@@ -827,8 +875,17 @@ BOOKED_RECORD = {
 def test_booking_notice_carries_the_facts_of_the_booking():
     text = render_booking_notice(BOOKED_RECORD)
 
-    for fragment in ["bath_russian", "2026-08-29", "14:00", "Часы: 3", "Гостей: 6",
-                     "9000 ₽", "Иван", "+79990000000", "rec-42"]:
+    for fragment in [
+        "bath_russian",
+        "2026-08-29",
+        "14:00",
+        "Часы: 3",
+        "Гостей: 6",
+        "9000 ₽",
+        "Иван",
+        "+79990000000",
+        "rec-42",
+    ]:
         assert fragment in text, fragment
 
 
@@ -846,8 +903,12 @@ def test_booking_notice_shows_promo_hours_both_ways():
     двух — и шестой час выглядит как ошибка агента, которую пойдут
     «исправлять» в календаре."""
     text = render_booking_notice(
-        {**BOOKED_RECORD, "occupied_hours": 6, "billable_hours": 5,
-         "applied_promo": "sixth_hour_free"}
+        {
+            **BOOKED_RECORD,
+            "occupied_hours": 6,
+            "billable_hours": 5,
+            "applied_promo": "sixth_hour_free",
+        }
     )
 
     assert "занято 6" in text
@@ -878,6 +939,7 @@ def test_booking_notice_marks_what_the_agent_did_not_collect():
 # TAKEOVER_MODE в операторском контуре
 # --------------------------------------------------------------------------
 
+
 def _service(mode: str, minutes: int = 15) -> OpsService:
     return OpsService(
         store=InMemoryOpsStore(),
@@ -890,10 +952,13 @@ def _service(mode: str, minutes: int = 15) -> OpsService:
 
 
 async def _took_over(service: OpsService, chat_id: str, minutes_ago: float) -> None:
-    await service.store.set_flags(chat_id, ChatFlags(
-        is_human_takeover=True,
-        takeover_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
-    ))
+    await service.store.set_flags(
+        chat_id,
+        ChatFlags(
+            is_human_takeover=True,
+            takeover_at=datetime.now(UTC) - timedelta(minutes=minutes_ago),
+        ),
+    )
 
 
 async def test_mode_off_keeps_the_agent_answering_over_a_manager():
@@ -953,7 +1018,7 @@ async def test_a_manager_message_extends_the_silence_window():
     allowed, _ = await service.should_agent_reply("c1")
     assert allowed is False
     flags = await service.store.get_flags("c1")
-    assert (datetime.now(timezone.utc) - flags.takeover_at) < timedelta(seconds=5)
+    assert (datetime.now(UTC) - flags.takeover_at) < timedelta(seconds=5)
 
 
 async def test_note_operator_message_raises_the_same_flag_as_the_button():
@@ -974,6 +1039,7 @@ async def test_note_operator_message_raises_the_same_flag_as_the_button():
 # --------------------------------------------------------------------------
 # Ручной hold: отдельный флаг, кулдаун его не трогает
 # --------------------------------------------------------------------------
+
 
 class _HoldStore:
     """Минимальная замена dialog_store для /hold и /unhold."""
@@ -1079,10 +1145,10 @@ async def test_manual_hold_is_not_touched_by_the_cooldown_in_any_mode():
             manual_hold_setter=holds.set_chat_manual_hold,
         )
         await service.hold("c1", ALLOWED_USER)
-        await _took_over(service, "c1", minutes_ago=60)      # окно давно истекло
+        await _took_over(service, "c1", minutes_ago=60)  # окно давно истекло
 
-        await service.should_agent_reply("c1")               # ленивый возврат
-        await service.return_to_ai("c1", ALLOWED_USER)       # и явный возврат
+        await service.should_agent_reply("c1")  # ленивый возврат
+        await service.return_to_ai("c1", ALLOWED_USER)  # и явный возврат
 
         assert holds.holds["c1"] is True, f"режим {mode} снял ручной hold"
 

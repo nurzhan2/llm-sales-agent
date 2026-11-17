@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -54,12 +54,19 @@ TEST_DATABASE_URL = os.environ.get(
     "postgresql+asyncpg://parmangal_test:parmangal_test@127.0.0.1:5432/parmangal_test",
 )
 
-NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 
 # Порядок не важен: чистим одним TRUNCATE ... CASCADE.
 _TABLES = (
-    "messages", "dialog_states", "pending_replies", "operator_actions",
-    "concession_log", "leads", "item_zone_map", "zone_service_map", "chats",
+    "messages",
+    "dialog_states",
+    "pending_replies",
+    "operator_actions",
+    "concession_log",
+    "leads",
+    "item_zone_map",
+    "zone_service_map",
+    "chats",
     "catalog_overrides",
 )
 
@@ -126,30 +133,62 @@ async def session_factory(_schema):
 async def seeded(session_factory):
     """Один диалог с перепиской, лид, уступка и маппинг объявления."""
     async with session_factory() as session:
-        session.add(Chat(
-            chat_id="c-1", item_id="item-1", zone_id="bath_russian",
-            buyer_name="Иван", state=ChatState.quoted, last_msg_at=NOW,
-        ))
+        session.add(
+            Chat(
+                chat_id="c-1",
+                item_id="item-1",
+                zone_id="bath_russian",
+                buyer_name="Иван",
+                state=ChatState.quoted,
+                last_msg_at=NOW,
+            )
+        )
         session.add(ItemZoneMap(item_id="item-1", zone_id="bath_russian"))
         await session.commit()
 
-        session.add(Message(
-            chat_id="c-1", direction=Direction.incoming, author=Author.client,
-            text="Здравствуйте", avito_message_id="m-1", status=SendStatus.sent,
-        ))
-        session.add(Message(
-            chat_id="c-1", direction=Direction.outgoing, author=Author.agent,
-            text="Добрый день!", status=SendStatus.sent,
-            llm_meta={"provider": "anthropic", "model": "claude-sonnet-5",
-                      "input_tokens": 1000, "output_tokens": 50, "cost_rub": "2.50"},
-        ))
-        session.add(Lead(chat_id="c-1", name="Иван", phone="+79990000000", zone_id="bath_russian", guests=6))
-        session.add(ConcessionLog(
-            dialog_id="c-1", zone="bath_russian", tier=1, trigger="price_objection",
-            base_price=Decimal("7000"), final_price=Decimal("6000"),
-            revenue_delta=Decimal("1000"), revenue_delta_basis="base_price",
-            allowed=True, provisional_policy=True,
-        ))
+        session.add(
+            Message(
+                chat_id="c-1",
+                direction=Direction.incoming,
+                author=Author.client,
+                text="Здравствуйте",
+                avito_message_id="m-1",
+                status=SendStatus.sent,
+            )
+        )
+        session.add(
+            Message(
+                chat_id="c-1",
+                direction=Direction.outgoing,
+                author=Author.agent,
+                text="Добрый день!",
+                status=SendStatus.sent,
+                llm_meta={
+                    "provider": "anthropic",
+                    "model": "claude-sonnet-5",
+                    "input_tokens": 1000,
+                    "output_tokens": 50,
+                    "cost_rub": "2.50",
+                },
+            )
+        )
+        session.add(
+            Lead(chat_id="c-1", name="Иван", phone="+79990000000", zone_id="bath_russian", guests=6)
+        )
+        session.add(
+            ConcessionLog(
+                dialog_id="c-1",
+                zone="bath_russian",
+                tier=1,
+                trigger="price_objection",
+                base_price=Decimal("7000"),
+                final_price=Decimal("6000"),
+                revenue_delta=Decimal("1000"),
+                revenue_delta_basis="base_price",
+                allowed=True,
+                provisional_policy=True,
+            )
+        )
         await session.commit()
     return session_factory
 
@@ -158,6 +197,7 @@ async def seeded(session_factory):
 # SqlAlchemyDialogStore — то, чем пишет конвейер
 # ==========================================================================
 
+
 async def test_dialog_store_creates_a_chat_and_resolves_the_zone(seeded):
     store = SqlAlchemyDialogStore(seeded)
 
@@ -165,7 +205,7 @@ async def test_dialog_store_creates_a_chat_and_resolves_the_zone(seeded):
 
     assert chat.chat_id == "c-new"
     assert chat.item_id == "item-1"
-    assert chat.zone_id == "bath_russian"   # подтянулась из item_zone_map
+    assert chat.zone_id == "bath_russian"  # подтянулась из item_zone_map
 
 
 async def test_item_zone_map_allows_many_listings_per_zone(session_factory):
@@ -203,9 +243,9 @@ async def test_list_dialogs_shows_the_listing_title(seeded):
     from app.admin.queries import SqlAlchemyAdminQueries
 
     async with seeded() as session:
-        row = (await session.execute(
-            select(ItemZoneMap).where(ItemZoneMap.item_id == "item-1")
-        )).scalar_one()
+        row = (
+            await session.execute(select(ItemZoneMap).where(ItemZoneMap.item_id == "item-1"))
+        ).scalar_one()
         row.title = "Баня «Русский стиль» на дровах"
         await session.commit()
 
@@ -277,7 +317,11 @@ async def test_dialog_store_history_keeps_the_last_n_in_order(session_factory):
     history = await store.load_history("c-long", limit=5)
 
     assert [h["content"] for h in history] == [
-        "сообщение 35", "сообщение 36", "сообщение 37", "сообщение 38", "сообщение 39",
+        "сообщение 35",
+        "сообщение 36",
+        "сообщение 37",
+        "сообщение 38",
+        "сообщение 39",
     ]
 
 
@@ -297,13 +341,15 @@ async def test_dialog_store_round_trips_the_ratchet_through_the_database(seeded)
     await writer.save_dialog_state(
         "c-1",
         DialogConcessionState(
-            base_price_quoted=True, used_tiers=frozenset({1, 2}),
-            floor_reached=Decimal("6000.00"), touch_count=1,
+            base_price_quoted=True,
+            used_tiers=frozenset({1, 2}),
+            floor_reached=Decimal("6000.00"),
+            touch_count=1,
         ),
         TouchState(touch_count=1, last_touch_at=NOW, next_touch_due_at=NOW + timedelta(minutes=30)),
     )
 
-    reader = SqlAlchemyDialogStore(seeded)      # «другой процесс»
+    reader = SqlAlchemyDialogStore(seeded)  # «другой процесс»
     concession, touch = await reader.load_dialog_state("c-1")
 
     assert concession.floor_reached == Decimal("6000.00")
@@ -321,9 +367,8 @@ async def test_dialog_store_saves_llm_meta_as_jsonb(seeded):
 
     async with seeded() as session:
         from sqlalchemy import select
-        row = (await session.execute(
-            select(Message).where(Message.text == "Ответ")
-        )).scalar_one()
+
+        row = (await session.execute(select(Message).where(Message.text == "Ответ"))).scalar_one()
         assert row.llm_meta == meta
         assert row.status == SendStatus.dry_run
 
@@ -347,12 +392,17 @@ async def test_dialog_store_bumps_the_reply_counter(seeded):
 
 def _price_concession_event(base=Decimal("7000"), final=Decimal("6000")):
     decision = ConcessionDecision(
-        allowed=True, tier=5, kind="price",
+        allowed=True,
+        tier=5,
+        kind="price",
         new_quote=PriceQuote(status="ok", total=final, zone_id="bath_russian"),
-        revenue_delta=final - base, revenue_delta_basis="base_rate",
+        revenue_delta=final - base,
+        revenue_delta_basis="base_rate",
         offer_template="Скидка",
     )
-    return ConcessionEvent(decision=decision, base_price=base, zone_id="bath_russian", trigger="price_objection")
+    return ConcessionEvent(
+        decision=decision, base_price=base, zone_id="bath_russian", trigger="price_objection"
+    )
 
 
 async def test_dialog_store_log_concession_writes_a_row(session_factory):
@@ -364,6 +414,7 @@ async def test_dialog_store_log_concession_writes_a_row(session_factory):
 
     async with session_factory() as session:
         from sqlalchemy import select
+
         row = (await session.execute(select(ConcessionLog))).scalar_one()
         assert row.dialog_id == "c-1"
         assert row.tier == 5
@@ -376,8 +427,12 @@ async def test_dialog_store_log_concession_writes_a_row(session_factory):
 async def test_dialog_store_count_concessions_today_counts_only_allowed(session_factory):
     store = SqlAlchemyDialogStore(session_factory)
     denied = ConcessionEvent(
-        decision=ConcessionDecision(allowed=False, tier=5, kind="price", requires_operator_approval=True),
-        base_price=Decimal("7000"), zone_id="bath_russian", trigger="price_objection",
+        decision=ConcessionDecision(
+            allowed=False, tier=5, kind="price", requires_operator_approval=True
+        ),
+        base_price=Decimal("7000"),
+        zone_id="bath_russian",
+        trigger="price_objection",
     )
 
     assert await store.count_concessions_today() == 0
@@ -393,7 +448,8 @@ async def test_dialog_store_count_concessions_today_ignores_yesterday(session_fa
 
     async with session_factory() as session:
         from sqlalchemy import update
-        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+
+        yesterday = datetime.now(UTC) - timedelta(days=1)
         await session.execute(update(ConcessionLog).values(created_at=yesterday))
         await session.commit()
 
@@ -417,7 +473,7 @@ async def test_dialog_store_day_boundary_is_moscow_not_utc(session_factory):
     суток прогона — предыдущая версия теста (относительным `datetime.now()
     - timedelta(days=1))` именно так и не поймала внесённую мутацию.
     """
-    from sqlalchemy import select, update
+    from sqlalchemy import update
 
     store = SqlAlchemyDialogStore(session_factory)
     fixed_now_msk = datetime(2026, 8, 25, 1, 30, tzinfo=MOSCOW_TZ)
@@ -428,11 +484,13 @@ async def test_dialog_store_day_boundary_is_moscow_not_utc(session_factory):
     await store.log_concession("c-today", _price_concession_event())
     async with session_factory() as session:
         await session.execute(
-            update(ConcessionLog).where(ConcessionLog.dialog_id == "c-yesterday")
+            update(ConcessionLog)
+            .where(ConcessionLog.dialog_id == "c-yesterday")
             .values(created_at=yesterday_msk)
         )
         await session.execute(
-            update(ConcessionLog).where(ConcessionLog.dialog_id == "c-today")
+            update(ConcessionLog)
+            .where(ConcessionLog.dialog_id == "c-today")
             .values(created_at=today_msk)
         )
         await session.commit()
@@ -448,8 +506,11 @@ async def test_dialog_store_day_boundary_is_moscow_not_utc(session_factory):
 # --------------------------------------------------------------------------
 
 _CALCULATE_PRICE_ARGS = {
-    "zone_id": "bath_russian", "date": "2026-07-18",
-    "start_time": "14:00", "hours": 3, "guests": 6,
+    "zone_id": "bath_russian",
+    "date": "2026-07-18",
+    "start_time": "14:00",
+    "hours": 3,
+    "guests": 6,
 }
 
 
@@ -519,7 +580,8 @@ async def test_r10_resets_the_next_day(session_factory):
         await store.log_concession(f"c-yesterday-{i}", _price_concession_event())
     async with session_factory() as session:
         from sqlalchemy import update
-        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+
+        yesterday = datetime.now(UTC) - timedelta(days=1)
         await session.execute(update(ConcessionLog).values(created_at=yesterday))
         await session.commit()
     assert await store.count_concessions_today() == 0
@@ -541,6 +603,7 @@ async def test_r10_resets_the_next_day(session_factory):
 # а не только логика движка в отрыве от хранилища.
 # --------------------------------------------------------------------------
 
+
 class _FakeBookingProvider:
     """Отдаёт заранее заданный статус. `calls` — чтобы проверить кеш."""
 
@@ -551,7 +614,9 @@ class _FakeBookingProvider:
     async def check_availability(self, zone_id, date, start_time=None, hours=None):
         from app.booking.base import Availability
 
-        self.calls.append({"zone_id": zone_id, "date": date, "start_time": start_time, "hours": hours})
+        self.calls.append(
+            {"zone_id": zone_id, "date": date, "start_time": start_time, "hours": hours}
+        )
         return Availability(status=self.status, reason="каталог пуст")
 
 
@@ -561,7 +626,8 @@ async def _concession_with_provider(store, dialog_id, provider, *, zone="bath_ru
 
     kb = load_catalog()
     ex = ToolExecutor(
-        kb, dialog_id,
+        kb,
+        dialog_id,
         booking_provider=provider,
         concessions_today_provider=store.count_concessions_today,
     )
@@ -618,9 +684,9 @@ async def test_r6_free_slot_passes_the_slot_check_and_stops_at_occupancy(session
 
     decision = ex.concession_events[-1].decision
     assert result["allowed"] is False
-    assert decision.requires_operator_approval is True     # к человеку, не отказ
+    assert decision.requires_operator_approval is True  # к человеку, не отказ
     assert decision.kind == "price"
-    assert "Загрузка" in decision.denial_reason            # R7, не R6
+    assert "Загрузка" in decision.denial_reason  # R7, не R6
     assert "слот занят" not in (decision.denial_reason or "")
 
 
@@ -658,13 +724,19 @@ async def test_availability_is_asked_once_per_slot_within_a_turn(session_factory
     # срабатывать раньше вызова провайдера, и assert ниже стал бы зелёным
     # по случайной причине — провайдер вызван request_concession, а не
     # check_availability, чей вызов как раз и проверяет этот тест.
-    ex = ToolExecutor(kb, "d-cache", booking_provider=provider,
-                      concessions_today_provider=store.count_concessions_today,
-                      today_fn=lambda: date(2026, 7, 1))
+    ex = ToolExecutor(
+        kb,
+        "d-cache",
+        booking_provider=provider,
+        concessions_today_provider=store.count_concessions_today,
+        today_fn=lambda: date(2026, 7, 1),
+    )
 
     await ex.run("calculate_price", _CALCULATE_PRICE_ARGS)
-    await ex.run("check_availability", {"zone_id": "bath_russian", "date": "2026-07-18",
-                                        "start_time": "14:00", "hours": 3})
+    await ex.run(
+        "check_availability",
+        {"zone_id": "bath_russian", "date": "2026-07-18", "start_time": "14:00", "hours": 3},
+    )
     ex.state = DialogConcessionState(base_price_quoted=True, used_tiers=frozenset({1, 2, 3, 4}))
     await ex.run("request_concession", {"observed_triggers": ["price_objection"]})
 
@@ -683,8 +755,12 @@ async def test_provider_failure_is_unknown_not_a_crash(session_factory):
 
     store = SqlAlchemyDialogStore(session_factory)
     kb = load_catalog()
-    ex = ToolExecutor(kb, "d-broken", booking_provider=_Broken(),
-                      concessions_today_provider=store.count_concessions_today)
+    ex = ToolExecutor(
+        kb,
+        "d-broken",
+        booking_provider=_Broken(),
+        concessions_today_provider=store.count_concessions_today,
+    )
     await ex.run("calculate_price", _CALCULATE_PRICE_ARGS)
     ex.state = DialogConcessionState(base_price_quoted=True, used_tiers=frozenset({1, 2, 3, 4}))
 
@@ -699,11 +775,12 @@ async def test_provider_failure_is_unknown_not_a_crash(session_factory):
 # SqlAlchemyOpsStore — состояние модерации переживает рестарт
 # ==========================================================================
 
+
 async def test_ops_store_flags_survive_a_new_instance(seeded):
     writer = SqlAlchemyOpsStore(seeded)
     await writer.set_flags("c-1", ChatFlags(is_human_takeover=True, takeover_at=NOW))
 
-    reader = SqlAlchemyOpsStore(seeded)      # «после рестарта контейнера»
+    reader = SqlAlchemyOpsStore(seeded)  # «после рестарта контейнера»
     flags = await reader.get_flags("c-1")
 
     assert flags.is_human_takeover is True
@@ -719,6 +796,7 @@ async def test_ops_store_unknown_chat_returns_defaults_without_creating_a_row(se
     assert flags == ChatFlags()
     async with session_factory() as session:
         from sqlalchemy import func, select
+
         count = (await session.execute(select(func.count()).select_from(Chat))).scalar()
         assert count == 0
 
@@ -737,7 +815,9 @@ async def test_ops_store_pending_reply_survives_a_new_instance(seeded):
     """Главное, ради чего OpsStore переехал в БД: неодобренный ответ не
     должен исчезать при редеплое, пока клиент ждёт."""
     writer = SqlAlchemyOpsStore(seeded)
-    await writer.set_pending("c-1", PendingReply(chat_id="c-1", text="Ответ на модерации", created_at=NOW))
+    await writer.set_pending(
+        "c-1", PendingReply(chat_id="c-1", text="Ответ на модерации", created_at=NOW)
+    )
 
     reader = SqlAlchemyOpsStore(seeded)
     pending = await reader.get_pending("c-1")
@@ -788,7 +868,7 @@ async def test_ops_store_moderation_stats_come_from_the_action_log(seeded):
     await store.log_action("c-1", 1, "approve", {})
     await store.log_action("c-1", 1, "reject", {})
     await store.log_action("c-1", 1, "send_edited", {})
-    await store.log_action("c-1", 1, "takeover", {})       # не метрика модерации
+    await store.log_action("c-1", 1, "takeover", {})  # не метрика модерации
 
     assert await store.moderation_stats() == {"approved": 2, "rejected": 1, "edited": 1}
 
@@ -798,12 +878,19 @@ async def test_ops_store_pending_concession_round_trips_all_fields(seeded):
     95c862132eaf, ради модерации ценовых уступок."""
     due = NOW + timedelta(minutes=15)
     writer = SqlAlchemyOpsStore(seeded)
-    await writer.set_pending("c-1", PendingReply(
-        chat_id="c-1", text="6 000 ₽ вместо 7 000 ₽.", created_at=NOW,
-        is_concession=True, fallback_text="Уточню детали и вернусь с ответом.", due_at=due,
-    ))
+    await writer.set_pending(
+        "c-1",
+        PendingReply(
+            chat_id="c-1",
+            text="6 000 ₽ вместо 7 000 ₽.",
+            created_at=NOW,
+            is_concession=True,
+            fallback_text="Уточню детали и вернусь с ответом.",
+            due_at=due,
+        ),
+    )
 
-    reader = SqlAlchemyOpsStore(seeded)      # «после рестарта контейнера»
+    reader = SqlAlchemyOpsStore(seeded)  # «после рестарта контейнера»
     pending = await reader.get_pending("c-1")
 
     assert pending.is_concession is True
@@ -825,25 +912,44 @@ async def test_ops_store_regular_pending_defaults_is_concession_to_false(seeded)
 
 async def test_ops_store_list_due_concessions_finds_overdue_and_skips_the_rest(seeded):
     store = SqlAlchemyOpsStore(seeded)
-    await store.set_pending("c-1", PendingReply(
-        chat_id="c-1", text="просрочен", created_at=NOW - timedelta(minutes=20),
-        is_concession=True, fallback_text="fb-1", due_at=NOW - timedelta(minutes=1),
-    ))
+    await store.set_pending(
+        "c-1",
+        PendingReply(
+            chat_id="c-1",
+            text="просрочен",
+            created_at=NOW - timedelta(minutes=20),
+            is_concession=True,
+            fallback_text="fb-1",
+            due_at=NOW - timedelta(minutes=1),
+        ),
+    )
 
     async with seeded() as session:
         session.add(Chat(chat_id="c-2"))
         await session.commit()
-    await store.set_pending("c-2", PendingReply(
-        chat_id="c-2", text="ещё не подошёл срок", created_at=NOW,
-        is_concession=True, fallback_text="fb-2", due_at=NOW + timedelta(minutes=10),
-    ))
+    await store.set_pending(
+        "c-2",
+        PendingReply(
+            chat_id="c-2",
+            text="ещё не подошёл срок",
+            created_at=NOW,
+            is_concession=True,
+            fallback_text="fb-2",
+            due_at=NOW + timedelta(minutes=10),
+        ),
+    )
 
     async with seeded() as session:
         session.add(Chat(chat_id="c-3"))
         await session.commit()
-    await store.set_pending("c-3", PendingReply(
-        chat_id="c-3", text="обычный холд, не скидка", created_at=NOW - timedelta(minutes=30),
-    ))
+    await store.set_pending(
+        "c-3",
+        PendingReply(
+            chat_id="c-3",
+            text="обычный холд, не скидка",
+            created_at=NOW - timedelta(minutes=30),
+        ),
+    )
 
     due = await store.list_due_concessions(NOW)
 
@@ -873,7 +979,7 @@ async def test_ops_service_end_to_end_over_the_sql_store(seeded):
     second = await service.approve("c-1", user_id=1)
 
     assert first["sent"] is True
-    assert second["sent"] is False           # идемпотентность
+    assert second["sent"] is False  # идемпотентность
     assert sent == [("c-1", "Готовый ответ")]
     assert await service.store.moderation_stats() == {"approved": 1, "rejected": 0, "edited": 0}
 
@@ -881,6 +987,7 @@ async def test_ops_service_end_to_end_over_the_sql_store(seeded):
 # ==========================================================================
 # SqlAlchemyAdminQueries — то, что читает админка
 # ==========================================================================
+
 
 async def test_admin_dialogs_shows_the_chat_the_pipeline_wrote(seeded):
     """Ровно тот баг, ради которого всё это: конвейер пишет Chat/Message,
@@ -907,7 +1014,10 @@ async def test_admin_dialogs_counts_messages_per_chat_not_globally(session_facto
     await store.save_incoming("c-b", "два", avito_message_id="b2")
     await store.save_incoming("c-b", "три", avito_message_id="b3")
 
-    rows = {r["chat_id"]: r["messages"] for r in await SqlAlchemyAdminQueries(session_factory).list_dialogs()}
+    rows = {
+        r["chat_id"]: r["messages"]
+        for r in await SqlAlchemyAdminQueries(session_factory).list_dialogs()
+    }
 
     assert rows == {"c-a": 1, "c-b": 3}
 
@@ -935,10 +1045,15 @@ async def test_admin_concessions_lists_only_granted_ones(seeded):
     """Отказы пишутся в тот же журнал по правилу R12 — но страница считает
     недополученную выручку, и отказы её исказили бы."""
     async with seeded() as session:
-        session.add(ConcessionLog(
-            dialog_id="c-1", tier=2, allowed=False,
-            denial_reason="ступень уже использована", revenue_delta=Decimal("5000"),
-        ))
+        session.add(
+            ConcessionLog(
+                dialog_id="c-1",
+                tier=2,
+                allowed=False,
+                denial_reason="ступень уже использована",
+                revenue_delta=Decimal("5000"),
+            )
+        )
         await session.commit()
 
     rows = await SqlAlchemyAdminQueries(seeded).list_concessions()
@@ -963,13 +1078,16 @@ async def test_admin_costs_survives_broken_cost_values(seeded):
     страница расходов. Именно поэтому агрегация в Python, а не приведение
     типа в SQL, которое роняет весь запрос на первой же плохой строке."""
     store = SqlAlchemyDialogStore(seeded)
-    await store.save_outgoing("c-1", "битая", SendStatus.sent,
-                              llm_meta={"provider": "anthropic", "model": "claude-sonnet-5",
-                                        "cost_rub": "не число"})
+    await store.save_outgoing(
+        "c-1",
+        "битая",
+        SendStatus.sent,
+        llm_meta={"provider": "anthropic", "model": "claude-sonnet-5", "cost_rub": "не число"},
+    )
 
     rows = await SqlAlchemyAdminQueries(seeded).list_costs()
 
-    assert rows[0]["cost_rub"] == Decimal("2.50")   # битая строка добавила ноль
+    assert rows[0]["cost_rub"] == Decimal("2.50")  # битая строка добавила ноль
 
 
 async def test_admin_costs_ignores_messages_without_meta(seeded):
@@ -995,6 +1113,7 @@ async def test_admin_stats_combines_db_counts_with_moderation_log(seeded):
     # render_stats принимает ровно этот набор ключей — иначе /stats упадёт
     # TypeError прямо в руках оператора.
     from app.ops.notifications import render_stats
+
     assert isinstance(render_stats(**data), str)
 
 
@@ -1008,6 +1127,7 @@ async def test_admin_stats_combines_db_counts_with_moderation_log(seeded):
 # Railway эфемерная, а Postgres нет.
 # ==========================================================================
 
+
 async def test_override_store_survives_a_new_instance(session_factory):
     """«Новый процесс» — эквивалент рестарта контейнера на Railway."""
     from app.kb.override_store import SqlAlchemyOverrideStore
@@ -1016,7 +1136,9 @@ async def test_override_store_survives_a_new_instance(session_factory):
     await writer.add(
         path="$.catalog.zones[id=dome_bags].pricing.weekend_per_hour",
         value={"value": 1800, "resolved_from": "оператор через Telegram (user_id=111)"},
-        previous_value={"value": 1500}, field_key="we_hour", zone_id="dome_bags",
+        previous_value={"value": 1500},
+        field_key="we_hour",
+        zone_id="dome_bags",
         changed_by=111,
     )
 
@@ -1032,8 +1154,12 @@ async def test_override_store_last_active_is_the_most_recent(session_factory):
     from app.kb.override_store import SqlAlchemyOverrideStore
 
     store = SqlAlchemyOverrideStore(session_factory)
-    await store.add(path="$.a", value=1, previous_value=None, field_key=None, zone_id=None, changed_by=1)
-    second = await store.add(path="$.b", value=2, previous_value=None, field_key=None, zone_id=None, changed_by=1)
+    await store.add(
+        path="$.a", value=1, previous_value=None, field_key=None, zone_id=None, changed_by=1
+    )
+    second = await store.add(
+        path="$.b", value=2, previous_value=None, field_key=None, zone_id=None, changed_by=1
+    )
 
     last = await store.last_active()
 
@@ -1045,7 +1171,12 @@ async def test_override_store_revert_marks_reverted_not_deletes(session_factory)
 
     store = SqlAlchemyOverrideStore(session_factory)
     record = await store.add(
-        path="$.a", value=2, previous_value=1, field_key=None, zone_id=None, changed_by=111,
+        path="$.a",
+        value=2,
+        previous_value=1,
+        field_key=None,
+        zone_id=None,
+        changed_by=111,
     )
 
     reverted = await store.revert(record.id, reverted_by=222)
@@ -1064,7 +1195,9 @@ async def test_override_store_reverting_twice_is_a_noop(session_factory):
     from app.kb.override_store import SqlAlchemyOverrideStore
 
     store = SqlAlchemyOverrideStore(session_factory)
-    record = await store.add(path="$.a", value=2, previous_value=1, field_key=None, zone_id=None, changed_by=1)
+    record = await store.add(
+        path="$.a", value=2, previous_value=1, field_key=None, zone_id=None, changed_by=1
+    )
     await store.revert(record.id, reverted_by=1)
 
     assert await store.revert(record.id, reverted_by=1) is None
@@ -1081,7 +1214,9 @@ async def test_overrides_from_the_database_apply_on_top_of_the_yaml(session_fact
     await store.add(
         path="$.catalog.zones[id=dome_bags].pricing.weekend_per_hour",
         value={"value": 1800, "resolved_from": "оператор через Telegram (user_id=111)"},
-        previous_value={"value": 1500}, field_key="we_hour", zone_id="dome_bags",
+        previous_value={"value": 1500},
+        field_key="we_hour",
+        zone_id="dome_bags",
         changed_by=111,
     )
 
@@ -1099,8 +1234,11 @@ async def test_reverted_overrides_are_not_applied(session_factory):
     store = SqlAlchemyOverrideStore(session_factory)
     record = await store.add(
         path="$.catalog.zones[id=dome_bags].pricing.weekend_per_hour",
-        value={"value": 1800}, previous_value={"value": 1500},
-        field_key="we_hour", zone_id="dome_bags", changed_by=111,
+        value={"value": 1800},
+        previous_value={"value": 1500},
+        field_key="we_hour",
+        zone_id="dome_bags",
+        changed_by=111,
     )
     await store.revert(record.id, reverted_by=111)
 
@@ -1108,7 +1246,7 @@ async def test_reverted_overrides_are_not_applied(session_factory):
     kb = load_catalog(overrides=overrides)
 
     zone = next(z for z in kb.catalog.zones if z.id == "dome_bags")
-    assert zone.pricing["weekend_per_hour"]["value"] == 1500      # исходное
+    assert zone.pricing["weekend_per_hour"]["value"] == 1500  # исходное
 
 
 async def test_catalog_editor_over_the_sql_store_end_to_end(session_factory):
@@ -1125,7 +1263,7 @@ async def test_catalog_editor_over_the_sql_store_end_to_end(session_factory):
     result = await editor.apply(preview, user_id=111)
 
     assert result.record.changed_by == 111
-    assert "4000" in result.price_example        # 1000 ₽/ч × 4 ч
+    assert "4000" in result.price_example  # 1000 ₽/ч × 4 ч
 
     # «Новый процесс» подхватывает то же значение.
     fresh_editor = CatalogEditor(SqlAlchemyOverrideStore(session_factory))
@@ -1133,22 +1271,31 @@ async def test_catalog_editor_over_the_sql_store_end_to_end(session_factory):
     assert value["value"] == 1000
 
     reverted = await fresh_editor.revert_last(user_id=111)
-    assert "6000" in reverted.price_example      # обратно к 1500 ₽/ч × 4 ч
+    assert "6000" in reverted.price_example  # обратно к 1500 ₽/ч × 4 ч
 
 
 # --------------------------------------------------------------------------
 # Затравка предохранителя по расходу
 # --------------------------------------------------------------------------
 
+
 async def test_cost_spent_today_sums_the_same_field_the_costs_page_shows(session_factory):
     """Предохранитель и /admin/costs читают одно поле одной таблицы — иначе
     «в отчёте одно, в предохранителе другое»."""
     store = SqlAlchemyDialogStore(session_factory)
     await store.get_or_create_chat("c-1")
-    await store.save_outgoing("c-1", "раз", SendStatus.sent,
-                              llm_meta={"provider": "anthropic", "model": "m", "cost_rub": "12.50"})
-    await store.save_outgoing("c-1", "два", SendStatus.sent,
-                              llm_meta={"provider": "anthropic", "model": "m", "cost_rub": "7.50"})
+    await store.save_outgoing(
+        "c-1",
+        "раз",
+        SendStatus.sent,
+        llm_meta={"provider": "anthropic", "model": "m", "cost_rub": "12.50"},
+    )
+    await store.save_outgoing(
+        "c-1",
+        "два",
+        SendStatus.sent,
+        llm_meta={"provider": "anthropic", "model": "m", "cost_rub": "7.50"},
+    )
 
     spent = await SqlAlchemyAdminQueries(session_factory).cost_spent_today()
 
@@ -1159,15 +1306,20 @@ async def test_cost_spent_today_ignores_yesterday(session_factory):
     """Иначе после суток работы предохранитель стартовал бы уже сработавшим."""
     store = SqlAlchemyDialogStore(session_factory)
     await store.get_or_create_chat("c-1")
-    await store.save_outgoing("c-1", "сегодня", SendStatus.sent,
-                              llm_meta={"cost_rub": "5"})
+    await store.save_outgoing("c-1", "сегодня", SendStatus.sent, llm_meta={"cost_rub": "5"})
 
     async with session_factory() as session:
-        session.add(Message(
-            chat_id="c-1", direction=Direction.outgoing, author=Author.agent,
-            text="позавчера", status=SendStatus.sent, llm_meta={"cost_rub": "9999"},
-            created_at=datetime.now(timezone.utc) - timedelta(days=2),
-        ))
+        session.add(
+            Message(
+                chat_id="c-1",
+                direction=Direction.outgoing,
+                author=Author.agent,
+                text="позавчера",
+                status=SendStatus.sent,
+                llm_meta={"cost_rub": "9999"},
+                created_at=datetime.now(UTC) - timedelta(days=2),
+            )
+        )
         await session.commit()
 
     spent = await SqlAlchemyAdminQueries(session_factory).cost_spent_today()
@@ -1179,10 +1331,8 @@ async def test_cost_spent_today_survives_a_broken_cost_field(session_factory):
     """Битое значение в JSONB — ноль, а не падение старта приложения."""
     store = SqlAlchemyDialogStore(session_factory)
     await store.get_or_create_chat("c-1")
-    await store.save_outgoing("c-1", "битое", SendStatus.sent,
-                              llm_meta={"cost_rub": "не число"})
-    await store.save_outgoing("c-1", "живое", SendStatus.sent,
-                              llm_meta={"cost_rub": "3"})
+    await store.save_outgoing("c-1", "битое", SendStatus.sent, llm_meta={"cost_rub": "не число"})
+    await store.save_outgoing("c-1", "живое", SendStatus.sent, llm_meta={"cost_rub": "3"})
 
     assert await SqlAlchemyAdminQueries(session_factory).cost_spent_today() == Decimal("3")
 
@@ -1194,6 +1344,7 @@ async def test_cost_spent_today_survives_a_broken_cost_field(session_factory):
 # InMemory-стор: у SQL-реализации можно было вывернуть ответ наизнанку, и не
 # падало ничего. А в бою работает именно она.
 # --------------------------------------------------------------------------
+
 
 async def test_our_own_outgoing_text_is_recognised_as_ours(session_factory):
     store = SqlAlchemyDialogStore(session_factory)
@@ -1261,6 +1412,7 @@ async def test_an_incoming_message_is_not_our_outgoing(session_factory):
 # Ручной hold в базе
 # --------------------------------------------------------------------------
 
+
 async def test_manual_hold_is_stored_and_read_back(session_factory):
     store = SqlAlchemyDialogStore(session_factory)
     await store.get_or_create_chat("c-1")
@@ -1303,13 +1455,14 @@ async def test_manual_hold_survives_everything_that_clears_a_takeover(session_fa
 # Аудит 30.10: клиент ждёт в чате «у менеджера», текст менеджера в истории
 # ==========================================================================
 
+
 async def test_operator_text_is_saved_once_and_shows_in_history(session_factory):
     store = SqlAlchemyDialogStore(session_factory)
     await store.get_or_create_chat("c-op")
     await store.save_incoming("c-op", "Есть время сегодня?", "in-op-1")
 
     assert await store.save_operator_message("c-op", "Есть с 17:00", "op-1") is True
-    assert await store.save_operator_message("c-op", "Есть с 17:00", "op-1") is False   # дубль
+    assert await store.save_operator_message("c-op", "Есть с 17:00", "op-1") is False  # дубль
 
     history = await store.load_history("c-op")
     assert history[-1] == {"role": "assistant", "content": "Есть с 17:00"}
@@ -1317,21 +1470,32 @@ async def test_operator_text_is_saved_once_and_shows_in_history(session_factory)
 
 
 async def test_clients_waiting_in_takeover_finds_only_unanswered_clients(session_factory):
-    base = datetime.now(timezone.utc)
+    base = datetime.now(UTC)
     async with session_factory() as session:
-        for cid, takeover_at in (("w-wait", base - timedelta(hours=2)),
-                                 ("w-answered", base - timedelta(hours=2)),
-                                 ("w-legacy", base - timedelta(minutes=5)),
-                                 ("w-fresh", base - timedelta(hours=2))):
-            session.add(Chat(chat_id=cid, is_human_takeover=True, takeover_at=takeover_at,
-                             last_msg_at=base))
+        for cid, takeover_at in (
+            ("w-wait", base - timedelta(hours=2)),
+            ("w-answered", base - timedelta(hours=2)),
+            ("w-legacy", base - timedelta(minutes=5)),
+            ("w-fresh", base - timedelta(hours=2)),
+        ):
+            session.add(
+                Chat(chat_id=cid, is_human_takeover=True, takeover_at=takeover_at, last_msg_at=base)
+            )
         session.add(Chat(chat_id="w-free", is_human_takeover=False, last_msg_at=base))
         await session.commit()
 
         def msg(cid, direction, author, txt, minutes_ago, mid):
-            session.add(Message(chat_id=cid, direction=direction, author=author, text=txt,
-                                status=SendStatus.sent, avito_message_id=mid,
-                                created_at=base - timedelta(minutes=minutes_ago)))
+            session.add(
+                Message(
+                    chat_id=cid,
+                    direction=direction,
+                    author=author,
+                    text=txt,
+                    status=SendStatus.sent,
+                    avito_message_id=mid,
+                    created_at=base - timedelta(minutes=minutes_ago),
+                )
+            )
 
         msg("w-wait", Direction.incoming, Author.client, "Как закрепить бронь?", 40, "a1")
         msg("w-wait", Direction.incoming, Author.client, "Вы можете ответить?", 35, "a2")
@@ -1345,7 +1509,8 @@ async def test_clients_waiting_in_takeover_finds_only_unanswered_clients(session
 
     store = SqlAlchemyDialogStore(session_factory)
     waiting = await store.clients_waiting_in_takeover(
-        older_than=base - timedelta(minutes=30), not_before=base - timedelta(hours=24),
+        older_than=base - timedelta(minutes=30),
+        not_before=base - timedelta(hours=24),
     )
 
     assert waiting == [("w-wait", "Как закрепить бронь?\nВы можете ответить?")]

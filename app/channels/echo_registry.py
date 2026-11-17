@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 TTL_SECONDS = 600
 _MAX_PER_CHAT = 20
@@ -26,11 +25,11 @@ _MAX_PER_CHAT = 20
 _pending: dict[str, list[tuple[str, float]]] = {}
 
 
-def _norm(text: Optional[str]) -> str:
+def _norm(text: str | None) -> str:
     return (text or "").strip()
 
 
-def expect(chat_id: str, text: str, now: Optional[float] = None) -> None:
+def expect(chat_id: str, text: str, now: float | None = None) -> None:
     """Сейчас уйдёт этот текст - его эхо не менеджер."""
     body = _norm(text)
     if not chat_id or not body:
@@ -41,7 +40,7 @@ def expect(chat_id: str, text: str, now: Optional[float] = None) -> None:
     _pending[chat_id] = fresh[-_MAX_PER_CHAT:]
 
 
-def is_expected(chat_id: str, text: str, now: Optional[float] = None) -> bool:
+def is_expected(chat_id: str, text: str, now: float | None = None) -> bool:
     body = _norm(text)
     if not chat_id or not body:
         return False

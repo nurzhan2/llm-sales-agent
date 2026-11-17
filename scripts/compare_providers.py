@@ -52,9 +52,9 @@ def _metrics(result: RunResult) -> dict:
         "hit_limit": sum(1 for t in turns if t.hit_iteration_limit),
         "tool_calls_total": len(with_tools),
         "tool_first_try_rate": _rate(len(clean_first_try), len(with_tools)),
-        "avg_reply_len": round(
-            statistics.mean(len(t.agent_text) for t in turns), 0
-        ) if turns else 0,
+        "avg_reply_len": round(statistics.mean(len(t.agent_text) for t in turns), 0)
+        if turns
+        else 0,
         "median_latency_ms": _median([t.latency_ms for t in turns]),
         "total_cost_rub": round(total_cost, 2),
         "cost_per_dialog_rub": round(total_cost / len(dialogs), 2) if dialogs else 0,
@@ -74,7 +74,7 @@ def _diff_section(anthropic: RunResult, deepseek: RunResult) -> str:
         )
 
     lines = []
-    for a_turn, d_turn in zip(anthropic.turns, deepseek.turns):
+    for a_turn, d_turn in zip(anthropic.turns, deepseek.turns, strict=False):
         if a_turn.dialog_id != d_turn.dialog_id or a_turn.client_text != d_turn.client_text:
             return (
                 "**Не удалось сопоставить ходы между прогонами** — порядок диалогов "
@@ -166,7 +166,9 @@ async def main(limit: int | None = None) -> int:
     if not all_rules:
         lines.append("| — | 0 | 0 |")
     for rule in all_rules:
-        lines.append(f"| {rule} | {a['violations_by_rule'].get(rule, 0)} | {d['violations_by_rule'].get(rule, 0)} |")
+        lines.append(
+            f"| {rule} | {a['violations_by_rule'].get(rule, 0)} | {d['violations_by_rule'].get(rule, 0)} |"
+        )
     lines.append("")
 
     lines += [
@@ -196,8 +198,8 @@ async def main(limit: int | None = None) -> int:
         "- **DeepSeek v4 по умолчанию думает перед ответом** (`thinking`-блок)."
         " При маленьком `max_tokens` (наш классификатор просит 8) модель"
         " может исчерпать лимит целиком на размышлении и вернуть пустой ответ"
-        " — воспроизведено: `max_tokens=8` без `thinking: {\"type\":"
-        " \"disabled\"}` → `stop_reason == \"max_tokens\"`, ни одного"
+        ' — воспроизведено: `max_tokens=8` без `thinking: {"type":'
+        ' "disabled"}` → `stop_reason == "max_tokens"`, ни одного'
         " текстового блока. Отключено по умолчанию"
         " (`DEEPSEEK_ENABLE_THINKING=false`) — без этого либо ломается"
         " классификатор, либо стоимость/задержка растут непредсказуемо не"

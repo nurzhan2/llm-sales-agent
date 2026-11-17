@@ -28,10 +28,12 @@ is unresolved). Never cache readiness by zone_id.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import date as DateType, time as TimeType, timedelta
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Literal, Optional, Sequence
+from datetime import date as DateType
+from datetime import time as TimeType
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, Literal
 
 from app.kb.loader import KnowledgeBase, Zone
 
@@ -55,15 +57,16 @@ def money(value: int | str | Decimal) -> Money:
 # Request / response
 # --------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class PriceRequest:
     zone_id: str
     date: DateType
-    start_time: Optional[TimeType] = None
-    hours: Optional[int] = None          # None = day-package request
-    guests: Optional[int] = None
+    start_time: TimeType | None = None
+    hours: int | None = None  # None = day-package request
+    guests: int | None = None
     extras: tuple[tuple[str, int], ...] = ()
-    promo_hint: Optional[str] = None     # "день рождения" etc.
+    promo_hint: str | None = None  # "день рождения" etc.
 
 
 @dataclass(frozen=True)
@@ -73,7 +76,7 @@ class PriceLine:
     qty: Decimal
     unit_price: Money
     amount: Money
-    source_field: str      # provenance: which KB field produced this line
+    source_field: str  # provenance: which KB field produced this line
 
 
 @dataclass(frozen=True)
@@ -98,34 +101,34 @@ class RateHint:
     """
 
     day_type: DayType
-    per_hour: Optional[Money] = None
-    min_hours: Optional[int] = None
+    per_hour: Money | None = None
+    min_hours: int | None = None
     # Пакет «весь день» — только если он вообще применим к этому дню недели
     # (у гриль-домика он пн-чт): назвать «7000 за день» на субботу значит
     # пообещать то, чего в этот день не существует.
-    day_package: Optional[Money] = None
-    per_day: Optional[Money] = None
+    day_package: Money | None = None
+    per_day: Money | None = None
 
 
 @dataclass(frozen=True)
 class PriceQuote:
     status: Status
-    total: Optional[Money] = None
+    total: Money | None = None
     lines: tuple[PriceLine, ...] = ()
-    applied_promo: Optional[str] = None
+    applied_promo: str | None = None
     alternative_promos: tuple[str, ...] = ()
-    prepayment: Optional[Money] = None
-    blocked_reason: Optional[str] = None
+    prepayment: Money | None = None
+    blocked_reason: str | None = None
     blocking_question_ids: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     human_readable: str = ""
     # --- extensions beyond the original spec -----------------------------
-    day_type: Optional[DayType] = None
-    zone_id: Optional[str] = None
+    day_type: DayType | None = None
+    zone_id: str | None = None
     # Set when the arithmetic is fine but SELLING it needs a concession
     # (e.g. fewer hours than the zone minimum). The concession engine, not
     # this module, decides whether that is allowed.
-    requires_concession_tier: Optional[int] = None
+    requires_concession_tier: int | None = None
     # Questions that do not block the calculation but inform the decision.
     # `blocking_question_ids` stays exclusively for status="blocked".
     advisory_question_ids: tuple[str, ...] = ()
@@ -133,28 +136,29 @@ class PriceQuote:
     missing_fields: tuple[str, ...] = ()
     # status="needs_input" only: тариф, который УЖЕ можно назвать, хотя
     # итоговой суммы ещё нет. См. RateHint.
-    rate_hint: Optional[RateHint] = None
+    rate_hint: RateHint | None = None
     # status="invalid" only: zones that could host this party instead.
     suggested_alternatives: tuple[str, ...] = ()
     # Base hourly rate actually used, for the concession engine's ratchet.
-    base_rate: Optional[Money] = None
-    billable_hours: Optional[int] = None
-    occupied_hours: Optional[int] = None
+    base_rate: Money | None = None
+    billable_hours: int | None = None
+    occupied_hours: int | None = None
     # Echoed from the request so downstream rules (e.g. "is there a cheaper
     # zone that still fits this party?") do not need the original request.
-    guests: Optional[int] = None
+    guests: int | None = None
 
 
 # --------------------------------------------------------------------------
 # KB field access
 # --------------------------------------------------------------------------
 
+
 class _Missing:
     """A KB field that exists but is unresolved (`value: null`)."""
 
     __slots__ = ("question_id", "path")
 
-    def __init__(self, question_id: Optional[str], path: str):
+    def __init__(self, question_id: str | None, path: str):
         self.question_id = question_id
         self.path = path
 
@@ -187,7 +191,7 @@ class _Ctx:
         if m.question_id and m.question_id not in self.blocking:
             self.blocking.append(m.question_id)
 
-    def advise(self, question_id: Optional[str]) -> None:
+    def advise(self, question_id: str | None) -> None:
         if question_id and question_id not in self.advisory:
             self.advisory.append(question_id)
 
@@ -211,6 +215,7 @@ def _blocked(ctx: _Ctx, reason: str, **extra: Any) -> PriceQuote:
 # --------------------------------------------------------------------------
 # Day type — a function of (date, zone), never of date alone
 # --------------------------------------------------------------------------
+
 
 def resolve_day_type(kb: KnowledgeBase, zone: Zone, d: DateType) -> DayType | _Missing:
     """Тип дня одинаков для всех зон (ответ 2.3: пятница — выходной).
@@ -246,8 +251,8 @@ def is_new_year_period(d: DateType) -> bool:
 
 
 def rate_hint_for(
-    kb: KnowledgeBase, zone: Zone, when: DateType, guests: Optional[int] = None
-) -> Optional[RateHint]:
+    kb: KnowledgeBase, zone: Zone, when: DateType, guests: int | None = None
+) -> RateHint | None:
     """Тариф зоны на дату — или None, если назвать его честно нельзя.
 
     НИЧЕГО НЕ БЛОКИРУЕТ И НЕ ПОРТИТ РАСЧЁТ. Функция работает на своём
@@ -264,7 +269,7 @@ def rate_hint_for(
     незаполненными: хватает зоны и даты.
     """
     if when is not None and is_new_year_period(when):
-        return None   # особые новогодние цены - называет менеджер
+        return None  # особые новогодние цены - называет менеджер
     day_type = resolve_day_type(kb, zone, when)
     if isinstance(day_type, _Missing):
         return None
@@ -273,8 +278,8 @@ def rate_hint_for(
     pricing = zone.pricing or {}
     mode = pricing.get("mode")
 
-    per_hour: Optional[Money] = None
-    per_day: Optional[Money] = None
+    per_hour: Money | None = None
+    per_day: Money | None = None
 
     if mode == "hourly":
         if pricing.get("rate_depends_on_guests"):
@@ -286,7 +291,9 @@ def rate_hint_for(
                 return None
             rate = _tent_rate(
                 PriceRequest(zone_id=zone.id, date=when, guests=guests),
-                zone, day_type, scratch,
+                zone,
+                day_type,
+                scratch,
             )
             per_hour = rate if isinstance(rate, Decimal) else None
         else:
@@ -304,12 +311,12 @@ def rate_hint_for(
                 per_day = money(got)
                 break
 
-    min_hours: Optional[int] = None
+    min_hours: int | None = None
     got_min = _read(pricing.get("min_hours"), f"{zone.id}.pricing.min_hours")
     if isinstance(got_min, int):
         min_hours = got_min
 
-    day_package: Optional[Money] = None
+    day_package: Money | None = None
     package = zone.day_package or {}
     if package:
         allowed_days = package.get("days")
@@ -322,8 +329,11 @@ def rate_hint_for(
         return None
 
     return RateHint(
-        day_type=day_type, per_hour=per_hour, min_hours=min_hours,
-        day_package=day_package, per_day=per_day,
+        day_type=day_type,
+        per_hour=per_hour,
+        min_hours=min_hours,
+        day_package=day_package,
+        per_day=per_day,
     )
 
 
@@ -331,9 +341,10 @@ def rate_hint_for(
 # Extras
 # --------------------------------------------------------------------------
 
+
 def resolve_extra_price(
     kb: KnowledgeBase, zone: Zone, extra_id: str, day_type: DayType
-) -> tuple[Optional[Money], Optional[str], Optional[_Missing]]:
+) -> tuple[Money | None, str | None, _Missing | None]:
     """One resolver for both catalogue-wide extras and zone-scoped services.
 
     Returns (price, description, missing). Exactly one of price/missing is
@@ -373,7 +384,7 @@ def resolve_extra_price(
 _BIRTHDAY_MARKERS = ("день рожд", "рождени", "именин", "birthday", "др ")
 
 
-def _looks_like_birthday(hint: Optional[str]) -> bool:
+def _looks_like_birthday(hint: str | None) -> bool:
     if not hint:
         return False
     lowered = hint.lower()
@@ -392,6 +403,7 @@ def _free_hours(occupied: int, min_paid: int, repeatable: bool) -> int:
 # --------------------------------------------------------------------------
 # Main entry point
 # --------------------------------------------------------------------------
+
 
 def _hhmm_to_minutes(value: str) -> int:
     """«09:00» -> 540. Формат чинит валидация базы знаний (app/kb/editable.py),
@@ -424,9 +436,7 @@ def quote(req: PriceRequest, kb: KnowledgeBase) -> PriceQuote:
             ctx,
             "Новогодние даты (30.12-10.01): особые цены, называет менеджер",
             zone_id=req.zone_id,
-            human_readable=(
-                "На новогодние даты действуют особые цены - их подтвердит менеджер."
-            ),
+            human_readable=("На новогодние даты действуют особые цены - их подтвердит менеджер."),
         )
 
     result = _compute_quote(req, kb)
@@ -591,7 +601,7 @@ def _compute_quote(req: PriceRequest, kb: KnowledgeBase) -> PriceQuote:
     else:
         result = _price_hourly(req, kb, zone, day_type, ctx)
 
-    if isinstance(result, PriceQuote):        # blocked/invalid short-circuit
+    if isinstance(result, PriceQuote):  # blocked/invalid short-circuit
         return result
 
     subtotal, applied_promo, alternatives, occupied, billable, base_rate = result
@@ -602,8 +612,10 @@ def _compute_quote(req: PriceRequest, kb: KnowledgeBase) -> PriceQuote:
         if miss is not None:
             ctx.block(miss)
             return _blocked(
-                ctx, f"Цена дополнительной услуги {extra_id!r} не подтверждена",
-                zone_id=zone.id, day_type=day_type,
+                ctx,
+                f"Цена дополнительной услуги {extra_id!r} не подтверждена",
+                zone_id=zone.id,
+                day_type=day_type,
             )
         if price is None:
             return PriceQuote(
@@ -631,12 +643,12 @@ def _compute_quote(req: PriceRequest, kb: KnowledgeBase) -> PriceQuote:
     # 14.4: суточные зоны и пакеты «весь день» (часа нет) — фиксированные
     # 3000 ₽, цифра из official_pricing.md.
     prepay_rule = kb.payment.payment.prepayment_rule
-    prepayment: Optional[Money] = None
+    prepayment: Money | None = None
     if not prepay_rule.is_resolved():
         ctx.advise(prepay_rule.disputed.question_id)
         ctx.warn("Единая формула предоплаты не утверждена — сумму предоплаты не называть.")
     elif prepay_rule.value == "half_of_total":
-        pass   # считается ниже, когда известна итоговая сумма
+        pass  # считается ниже, когда известна итоговая сумма
     elif prepay_rule.value == "first_hour_price":
         if base_rate is not None:
             prepayment = money(base_rate)
@@ -652,7 +664,7 @@ def _compute_quote(req: PriceRequest, kb: KnowledgeBase) -> PriceQuote:
                 )
 
     # ---- minimum hours (arithmetic is fine; the RIGHT to sell may not be)
-    requires_tier: Optional[int] = None
+    requires_tier: int | None = None
     if occupied is not None:
         min_hours_node = zone.pricing.get("min_hours")
         min_hours = _read(min_hours_node, f"{zone.id}.min_hours")
@@ -685,7 +697,7 @@ def _compute_quote(req: PriceRequest, kb: KnowledgeBase) -> PriceQuote:
         applied_promo=applied_promo,
         alternative_promos=tuple(alternatives),
         prepayment=prepayment,
-        blocking_question_ids=(),      # invariant: empty unless status="blocked"
+        blocking_question_ids=(),  # invariant: empty unless status="blocked"
         warnings=tuple(ctx.warnings),
         human_readable=_render(ctx.lines, subtotal, occupied, applied_promo),
         day_type=day_type,
@@ -703,6 +715,7 @@ def _compute_quote(req: PriceRequest, kb: KnowledgeBase) -> PriceQuote:
 # Pricing modes
 # --------------------------------------------------------------------------
 
+
 def _price_hourly(req, kb, zone, day_type, ctx):
     hours = req.hours
 
@@ -716,11 +729,17 @@ def _price_hourly(req, kb, zone, day_type, ctx):
         got = _read(zone.pricing.get(key), f"{zone.id}.pricing.{key}")
         if isinstance(got, _Missing):
             ctx.block(got)
-            return _blocked(ctx, f"Ставка {key} для этой зоны не подтверждена",
-                            zone_id=zone.id, day_type=day_type)
+            return _blocked(
+                ctx,
+                f"Ставка {key} для этой зоны не подтверждена",
+                zone_id=zone.id,
+                day_type=day_type,
+            )
         if got is None:
             return PriceQuote(
-                status="invalid", zone_id=zone.id, day_type=day_type,
+                status="invalid",
+                zone_id=zone.id,
+                day_type=day_type,
                 blocked_reason=f"У зоны нет тарифа {key}",
                 human_readable="Эта зона так не сдаётся.",
             )
@@ -734,7 +753,9 @@ def _price_hourly(req, kb, zone, day_type, ctx):
         special_min = _read(special.get("min_hours"), f"{zone.id}.weekday_special.min_hours")
         if isinstance(special_min, int) and hours >= special_min:
             special_rate = _read(special.get("per_hour"), f"{zone.id}.weekday_special.per_hour")
-            calc_mode = _read(special.get("calculation_mode"), f"{zone.id}.weekday_special.calculation_mode")
+            calc_mode = _read(
+                special.get("calculation_mode"), f"{zone.id}.weekday_special.calculation_mode"
+            )
             if isinstance(special_rate, _Missing):
                 ctx.block(special_rate)
             if isinstance(calc_mode, _Missing):
@@ -744,7 +765,8 @@ def _price_hourly(req, kb, zone, day_type, ctx):
                     ctx,
                     f"При {hours} ч в будни должна применяться спеццена, "
                     "но её размер и/или способ расчёта не подтверждены",
-                    zone_id=zone.id, day_type=day_type,
+                    zone_id=zone.id,
+                    day_type=day_type,
                 )
 
     # --- promos -----------------------------------------------------------
@@ -792,19 +814,24 @@ def _price_daily(req, kb, zone, day_type, ctx):
         ctx.block(got)
 
     if day_type == "weekend":
-        available = _read(zone.pricing.get("available_on_weekend"), f"{zone.id}.available_on_weekend")
+        available = _read(
+            zone.pricing.get("available_on_weekend"), f"{zone.id}.available_on_weekend"
+        )
         if isinstance(available, _Missing):
             ctx.block(available)
         elif available is False:
             return PriceQuote(
-                status="invalid", zone_id=zone.id, day_type=day_type,
+                status="invalid",
+                zone_id=zone.id,
+                day_type=day_type,
                 blocked_reason="Зона не сдаётся в выходные",
                 human_readable="В выходные эта зона не сдаётся.",
             )
 
     if ctx.blocking:
-        return _blocked(ctx, "Суточная цена этой зоны не подтверждена",
-                        zone_id=zone.id, day_type=day_type)
+        return _blocked(
+            ctx, "Суточная цена этой зоны не подтверждена", zone_id=zone.id, day_type=day_type
+        )
 
     # Advisory-only unknowns that do not change the amount (e.g. yurt check-in).
     for advisory_key in ("checkin",):
@@ -832,7 +859,9 @@ def _price_day_package(req, kb, zone, day_type, ctx):
     package = zone.day_package
     if not package:
         return PriceQuote(
-            status="invalid", zone_id=zone.id, day_type=day_type,
+            status="invalid",
+            zone_id=zone.id,
+            day_type=day_type,
             blocked_reason="У зоны нет пакета «весь день»",
             human_readable="Пакета на весь день для этой зоны нет.",
         )
@@ -842,7 +871,9 @@ def _price_day_package(req, kb, zone, day_type, ctx):
         token = _DOW_TOKENS[req.date.weekday()]
         if token not in allowed_days:
             return PriceQuote(
-                status="invalid", zone_id=zone.id, day_type=day_type,
+                status="invalid",
+                zone_id=zone.id,
+                day_type=day_type,
                 blocked_reason=f"Пакет «весь день» действует только {allowed_days}",
                 blocking_question_ids=(),
                 human_readable=(
@@ -854,8 +885,9 @@ def _price_day_package(req, kb, zone, day_type, ctx):
     got = _read(package.get("price"), f"{zone.id}.day_package.price")
     if isinstance(got, _Missing):
         ctx.block(got)
-        return _blocked(ctx, "Цена пакета «весь день» не подтверждена",
-                        zone_id=zone.id, day_type=day_type)
+        return _blocked(
+            ctx, "Цена пакета «весь день» не подтверждена", zone_id=zone.id, day_type=day_type
+        )
 
     price = money(got)
     ctx.lines.append(
@@ -877,6 +909,7 @@ def _price_day_package(req, kb, zone, day_type, ctx):
 # Tent: the one zone whose rate depends on guest count
 # --------------------------------------------------------------------------
 
+
 def _tent_rate(req, zone, day_type, ctx):
     """Единственная зона, где ставка зависит от числа гостей.
 
@@ -891,22 +924,28 @@ def _tent_rate(req, zone, day_type, ctx):
             got = _read(tier.get("per_hour"), f"{zone.id}.weekend_guest_tiers.per_hour")
             if isinstance(got, _Missing):
                 ctx.block(got)
-                return _blocked(ctx, "Тариф шатра для этой компании не подтверждён",
-                                zone_id=zone.id, day_type=day_type)
+                return _blocked(
+                    ctx,
+                    "Тариф шатра для этой компании не подтверждён",
+                    zone_id=zone.id,
+                    day_type=day_type,
+                )
             return money(got)
 
-    return _blocked(ctx, "Не найден тариф шатра для этого числа гостей",
-                    zone_id=zone.id, day_type=day_type)
+    return _blocked(
+        ctx, "Не найден тариф шатра для этого числа гостей", zone_id=zone.id, day_type=day_type
+    )
 
 
 # --------------------------------------------------------------------------
 # Promo selection
 # --------------------------------------------------------------------------
 
+
 def _select_promo(req, kb, zone, day_type, hours, rate, ctx):
     """Returns (applied_promo_id, alternatives, billable_hours, discount_line)
     or a PriceQuote when blocked."""
-    candidates: list[tuple[str, Money, int, Optional[PriceLine]]] = []
+    candidates: list[tuple[str, Money, int, PriceLine | None]] = []
     alternatives: list[str] = []
 
     for promo in kb.promos.promos:
@@ -919,13 +958,20 @@ def _select_promo(req, kb, zone, day_type, hours, rate, ctx):
         # whether it applies to THIS zone is unresolved. Quoting the full
         # price in silence is the worst outcome — that is exactly how the
         # manager lost ground in d20. Escalate instead.
-        if disputed_here and promo.type == "percent_discount" and _looks_like_birthday(req.promo_hint):
-            ctx.block(_Missing(promo.disputed_zones.question_id, f"promos.{promo.id}.disputed_zones"))
+        if (
+            disputed_here
+            and promo.type == "percent_discount"
+            and _looks_like_birthday(req.promo_hint)
+        ):
+            ctx.block(
+                _Missing(promo.disputed_zones.question_id, f"promos.{promo.id}.disputed_zones")
+            )
             return _blocked(
                 ctx,
                 f"Клиент просит скидку по акции {promo.id!r}, "
                 "а её действие на эту зону не подтверждено",
-                zone_id=zone.id, day_type=day_type,
+                zone_id=zone.id,
+                day_type=day_type,
             )
 
         if disputed_here or zone.id not in promo.applies_to_zones:
@@ -937,11 +983,16 @@ def _select_promo(req, kb, zone, day_type, hours, rate, ctx):
             if repeatable_dv is not None and not repeatable_dv.is_resolved():
                 # Only ambiguous when the two readings actually differ.
                 if _free_hours(hours, min_paid, True) != _free_hours(hours, min_paid, False):
-                    ctx.block(_Missing(repeatable_dv.disputed.question_id, f"promos.{promo.id}.repeatable"))
+                    ctx.block(
+                        _Missing(
+                            repeatable_dv.disputed.question_id, f"promos.{promo.id}.repeatable"
+                        )
+                    )
                     return _blocked(
                         ctx,
                         f"При {hours} ч неясно, повторяется ли акция «{promo.name}»",
-                        zone_id=zone.id, day_type=day_type,
+                        zone_id=zone.id,
+                        day_type=day_type,
                     )
                 free = _free_hours(hours, min_paid, False)
             else:
@@ -982,7 +1033,8 @@ def _select_promo(req, kb, zone, day_type, hours, rate, ctx):
 # Helpers
 # --------------------------------------------------------------------------
 
-def _tier_id(kb: KnowledgeBase, tier_name: str) -> Optional[int]:
+
+def _tier_id(kb: KnowledgeBase, tier_name: str) -> int | None:
     for tier in kb.concessions.policy.ladder:
         if tier.id == tier_name:
             return tier.tier
@@ -993,9 +1045,9 @@ def _alternatives_for(kb: KnowledgeBase, guests: int, exclude: str) -> tuple[str
     """Only zones with a CONFIRMED capacity — we must not promise a zone
     whose capacity is itself an open question."""
     return tuple(
-        z.id for z in kb.catalog.zones
-        if z.id != exclude and z.on_sale
-        and z.capacity.is_resolved() and z.capacity.value >= guests
+        z.id
+        for z in kb.catalog.zones
+        if z.id != exclude and z.on_sale and z.capacity.is_resolved() and z.capacity.value >= guests
     )
 
 
@@ -1026,8 +1078,9 @@ def _ask_for(fields: Sequence[str]) -> str:
     return "Подскажите, пожалуйста, недостающие детали?"
 
 
-def _render(lines: Sequence[PriceLine], total: Money, occupied: Optional[int],
-            applied_promo: Optional[str]) -> str:
+def _render(
+    lines: Sequence[PriceLine], total: Money, occupied: int | None, applied_promo: str | None
+) -> str:
     """Client-facing text, no greetings.
 
     INVARIANT: never print a derived per-hour rate when a promo is applied.
@@ -1037,9 +1090,7 @@ def _render(lines: Sequence[PriceLine], total: Money, occupied: Optional[int],
     out: list[str] = []
     for line in lines:
         if line.code == "base_hourly":
-            out.append(
-                f"{int(line.qty)} ч × {line.unit_price} ₽ = {line.amount} ₽"
-            )
+            out.append(f"{int(line.qty)} ч × {line.unit_price} ₽ = {line.amount} ₽")
         elif line.code == "promo:free_hours":
             out.append(f"{int(line.qty)} ч — в подарок")
         elif line.amount < 0:

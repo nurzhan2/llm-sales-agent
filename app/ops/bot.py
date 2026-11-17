@@ -9,15 +9,14 @@ TELEGRAM_ALLOWED_USERS, и действие должно быть идемпот
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from decimal import Decimal
-from typing import Any, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from app.channels import kill_switch
 from app.channels.outbound_gate import TakeoverState, takeover_blocks
 from app.config import Settings, get_settings
 from app.ops.state import (
-    ChatFlags,
     InMemoryOpsStore,
     OpsStore,
     PendingReply,
@@ -36,15 +35,15 @@ class OpsService:
 
     def __init__(
         self,
-        store: Optional[OpsStore] = None,
-        settings: Optional[Settings] = None,
-        send_to_avito: Optional[Callable[[str, str], Awaitable[Any]]] = None,
-        redis: Optional[Any] = None,
+        store: OpsStore | None = None,
+        settings: Settings | None = None,
+        send_to_avito: Callable[[str, str], Awaitable[Any]] | None = None,
+        redis: Any | None = None,
         # (chat_id, value) -> None. Ручной hold живёт в таблице `chats`, а не
         # в операторском сторе: его читает граница исходящих, и она не должна
         # зависеть от операторского контура. None — команды /hold и /unhold
         # честно откажут, а не сделают вид, что сработали.
-        manual_hold_setter: Optional[Callable[[str, bool], Awaitable[Any]]] = None,
+        manual_hold_setter: Callable[[str, bool], Awaitable[Any]] | None = None,
     ):
         self.store = store or InMemoryOpsStore()
         self.settings = settings or get_settings()
@@ -71,7 +70,7 @@ class OpsService:
             return {"changed": False, "message": "Чат уже у оператора"}
 
         flags.is_human_takeover = True
-        flags.takeover_at = datetime.now(timezone.utc)
+        flags.takeover_at = datetime.now(UTC)
         await self.store.set_flags(chat_id, flags)
         await self.store.log_action(chat_id, user_id, "takeover", {})
         return {"changed": True, "message": "Чат ваш, агент молчит"}
@@ -122,7 +121,7 @@ class OpsService:
         """
         flags = await self.store.get_flags(chat_id)
         flags.is_human_takeover = True
-        flags.takeover_at = datetime.now(timezone.utc)
+        flags.takeover_at = datetime.now(UTC)
         await self.store.set_flags(chat_id, flags)
         await self.store.log_action(chat_id, 0, "operator_message", {})
 
@@ -152,7 +151,7 @@ class OpsService:
     # -- модерация ---------------------------------------------------------
 
     async def queue_reply(self, chat_id: str, text: str) -> PendingReply:
-        reply = PendingReply(chat_id=chat_id, text=text, created_at=datetime.now(timezone.utc))
+        reply = PendingReply(chat_id=chat_id, text=text, created_at=datetime.now(UTC))
         await self.store.set_pending(chat_id, reply)
         return reply
 

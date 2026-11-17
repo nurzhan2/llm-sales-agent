@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -49,6 +49,7 @@ def settings():
 # Доступ
 # --------------------------------------------------------------------------
 
+
 def test_admin_requires_auth(settings, kb):
     client = make_client(settings, kb)
     assert client.get("/admin/readiness").status_code == 401
@@ -74,6 +75,7 @@ def test_unset_password_disables_admin_rather_than_opening_it(kb):
 # --------------------------------------------------------------------------
 # Страница готовности
 # --------------------------------------------------------------------------
+
 
 def test_readiness_shows_both_columns(settings, kb):
     client = make_client(settings, kb)
@@ -158,11 +160,18 @@ def test_pages_without_providers_do_not_crash(settings, kb):
 # Экспорт лидов
 # --------------------------------------------------------------------------
 
+
 class _Leads:
     async def list_leads(self):
         return [
-            {"name": "Борис", "phone": "89160000000", "zone_id": "house_relax",
-             "date": "2026-07-18", "guests": 7, "notes": ""}
+            {
+                "name": "Борис",
+                "phone": "89160000000",
+                "zone_id": "house_relax",
+                "date": "2026-07-18",
+                "guests": 7,
+                "notes": "",
+            }
         ]
 
 
@@ -179,13 +188,26 @@ def test_leads_csv_export(settings, kb):
 # Расход (промт №12: разбивка по LLM-провайдеру)
 # --------------------------------------------------------------------------
 
+
 class _Costs:
     async def list_costs(self):
         return [
-            {"date": "2026-08-19", "llm_provider": "anthropic", "model": "claude-sonnet-5",
-             "dialogs": 12, "cost_rub": "84.30", "cost_per_dialog": "7.03"},
-            {"date": "2026-08-19", "llm_provider": "deepseek", "model": "deepseek-v4-pro",
-             "dialogs": 3, "cost_rub": "5.10", "cost_per_dialog": "1.70"},
+            {
+                "date": "2026-08-19",
+                "llm_provider": "anthropic",
+                "model": "claude-sonnet-5",
+                "dialogs": 12,
+                "cost_rub": "84.30",
+                "cost_per_dialog": "7.03",
+            },
+            {
+                "date": "2026-08-19",
+                "llm_provider": "deepseek",
+                "model": "deepseek-v4-pro",
+                "dialogs": 3,
+                "cost_rub": "5.10",
+                "cost_per_dialog": "1.70",
+            },
         ]
 
 
@@ -201,6 +223,7 @@ def test_costs_page_breaks_down_by_llm_provider(settings, kb):
 # Метрики
 # --------------------------------------------------------------------------
 
+
 def test_metrics_render():
     payload, content_type = render_metrics()
     assert b"parmangal_" in payload
@@ -211,13 +234,14 @@ def test_metrics_render():
 # Предохранитель по расходу
 # --------------------------------------------------------------------------
 
+
 def test_cost_guard_trips_once_at_limit():
     paused = []
     guard = DailyCostGuard(Decimal("100"), on_pause=lambda: paused.append(True))
 
     assert guard.add(Decimal("60")) is False
-    assert guard.add(Decimal("50")) is True      # 110 > 100
-    assert guard.add(Decimal("10")) is False     # повторно не срабатывает
+    assert guard.add(Decimal("50")) is True  # 110 > 100
+    assert guard.add(Decimal("10")) is False  # повторно не срабатывает
     assert paused == [True]
 
 
@@ -244,7 +268,7 @@ def test_cost_guard_is_seeded_from_what_was_already_spent_today():
     already_tripped = guard.seed(Decimal("90"))
 
     assert already_tripped is False
-    assert guard.add(Decimal("15")) is True      # 105 > 100, а не 15
+    assert guard.add(Decimal("15")) is True  # 105 > 100, а не 15
 
 
 def test_cost_guard_seeded_over_the_limit_reports_it_without_re_alerting():
@@ -260,23 +284,24 @@ def test_cost_guard_seeded_over_the_limit_reports_it_without_re_alerting():
 
 def test_cost_guard_counter_rolls_over_at_moscow_midnight():
     """Сутки — московские, как у лимита исходящих и лимита уступок."""
-    now = [datetime(2026, 8, 29, 20, 0, tzinfo=timezone.utc)]   # 23:00 МСК
+    now = [datetime(2026, 8, 29, 20, 0, tzinfo=UTC)]  # 23:00 МСК
     guard = DailyCostGuard(Decimal("100"), now_fn=lambda: now[0])
 
     assert guard.add(Decimal("90")) is False
-    now[0] = datetime(2026, 8, 29, 21, 30, tzinfo=timezone.utc)  # 00:30 МСК, новые сутки
+    now[0] = datetime(2026, 8, 29, 21, 30, tzinfo=UTC)  # 00:30 МСК, новые сутки
     assert guard.add(Decimal("90")) is False, "счётчик обязан начаться заново"
     assert guard.spent == Decimal("90")
 
 
 def test_cost_guard_can_trip_again_the_next_day():
-    now = [datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)]
+    now = [datetime(2026, 8, 29, 12, 0, tzinfo=UTC)]
     tripped = []
-    guard = DailyCostGuard(Decimal("100"), on_pause=lambda: tripped.append(1),
-                           now_fn=lambda: now[0])
+    guard = DailyCostGuard(
+        Decimal("100"), on_pause=lambda: tripped.append(1), now_fn=lambda: now[0]
+    )
 
     assert guard.add(Decimal("150")) is True
-    now[0] = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+    now[0] = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
     assert guard.add(Decimal("150")) is True
     assert len(tripped) == 2
 
@@ -304,11 +329,11 @@ def test_the_shipped_cost_limit_is_not_zero():
 # Предохранитель подключён к реальному пути вызова модели
 # --------------------------------------------------------------------------
 
+
 async def test_every_turn_feeds_its_cost_to_the_guard(kb):
     """Ход агента стоит денег — и эти деньги обязаны попасть в счётчик.
     Иначе лимит остаётся строчкой в RUNBOOK, а не предохранителем."""
     from app.agent.loop import AgentLoop
-
     from tests.test_agent import FakeAnthropic, FakeResponse, TextBlock
 
     guard = DailyCostGuard(Decimal("1000"))
@@ -325,7 +350,6 @@ async def test_a_turn_killed_by_the_guard_rail_still_costs_money(kb):
     """Последний рубеж не отдаёт текст клиенту, но модель уже отработала.
     Предохранитель ограничивает трату, а не выдачу."""
     from app.agent.loop import AgentLoop
-
     from tests.test_agent import FakeAnthropic, FakeResponse, TextBlock
 
     guard = DailyCostGuard(Decimal("1000"))
@@ -334,14 +358,13 @@ async def test_a_turn_killed_by_the_guard_rail_still_costs_money(kb):
 
     result = await loop.run_turn("d1", [], "сколько стоит баня?")
 
-    assert result.escalated is True          # рубеж сработал
-    assert guard.spent > 0                   # но ход всё равно оплачен
+    assert result.escalated is True  # рубеж сработал
+    assert guard.spent > 0  # но ход всё равно оплачен
 
 
 async def test_a_broken_guard_does_not_break_the_dialogue(kb):
     """Предохранитель сломан — разговор с живым клиентом продолжается."""
     from app.agent.loop import AgentLoop
-
     from tests.test_agent import FakeAnthropic, FakeResponse, TextBlock
 
     class _Broken:
@@ -359,6 +382,7 @@ async def test_a_broken_guard_does_not_break_the_dialogue(kb):
 # --------------------------------------------------------------------------
 # /admin/dialogs: видно, отвечает ли агент в чате прямо сейчас
 # --------------------------------------------------------------------------
+
 
 class _FakeDialogProvider:
     def __init__(self, rows):
@@ -382,7 +406,9 @@ def test_dialogs_marks_a_blocklisted_chat_as_blocked():
     """Ровно вопрос, с которого начался разбор: агент в этом диалоге
     отвечает или уже нет?"""
     settings = Settings(admin_user=ADMIN_USER, admin_password=ADMIN_PASSWORD)
-    client = _dialogs_client(settings, [{"chat_id": "c-1", "item_id": "8172444564", "messages": 15}])
+    client = _dialogs_client(
+        settings, [{"chat_id": "c-1", "item_id": "8172444564", "messages": 15}]
+    )
 
     html = client.get("/admin/dialogs", headers=auth_header()).text
 
@@ -391,7 +417,9 @@ def test_dialogs_marks_a_blocklisted_chat_as_blocked():
 
 def test_dialogs_marks_a_normal_chat_as_answered():
     settings = Settings(admin_user=ADMIN_USER, admin_password=ADMIN_PASSWORD)
-    client = _dialogs_client(settings, [{"chat_id": "c-1", "item_id": "9999-обычное", "messages": 3}])
+    client = _dialogs_client(
+        settings, [{"chat_id": "c-1", "item_id": "9999-обычное", "messages": 3}]
+    )
 
     html = client.get("/admin/dialogs", headers=auth_header()).text
 
@@ -413,7 +441,9 @@ def test_dialogs_warns_when_the_allowlist_overrides_the_blocklist():
     """Пока AVITO_ALLOWED_ITEMS задан, чёрный список не применяется —
     это должно быть видно, а не выясняться по поведению."""
     settings = Settings(
-        admin_user=ADMIN_USER, admin_password=ADMIN_PASSWORD, avito_allowed_items="item-1",
+        admin_user=ADMIN_USER,
+        admin_password=ADMIN_PASSWORD,
+        avito_allowed_items="item-1",
     )
     client = _dialogs_client(settings, [])
 

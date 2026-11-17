@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("parmangal.poller.items")
 
@@ -60,7 +60,7 @@ class OwnItemIds:
         self._client = items_client
         self._settings = settings
         self._monotonic = monotonic
-        self._snapshot: Optional[dict[str, Any]] = None  # item_id -> Listing
+        self._snapshot: dict[str, Any] | None = None  # item_id -> Listing
         self._loaded_at: float = 0.0
 
     async def _refresh(self) -> dict[str, Any]:
@@ -74,8 +74,7 @@ class OwnItemIds:
         """
         fresh_enough = (
             self._snapshot is not None
-            and self._monotonic() - self._loaded_at
-            < self._settings.poller_items_refresh_seconds
+            and self._monotonic() - self._loaded_at < self._settings.poller_items_refresh_seconds
         )
         if fresh_enough:
             return self._snapshot  # type: ignore[return-value]
@@ -101,7 +100,8 @@ class OwnItemIds:
         self._loaded_at = self._monotonic()
         logger.info(
             "poller: объявлений аккаунта в гуарде: %d (статусы: %s)",
-            len(self._snapshot), self._settings.poller_items_statuses,
+            len(self._snapshot),
+            self._settings.poller_items_statuses,
         )
         return self._snapshot
 
@@ -109,7 +109,7 @@ class OwnItemIds:
         """Актуальный набор id — тот же снимок, что и у `get_listing`."""
         return set((await self._refresh()).keys())
 
-    async def get_listing(self, item_id: str) -> Optional[Any]:
+    async def get_listing(self, item_id: str) -> Any | None:
         """Listing (item_id, title, ...) объявления АККАУНТА из того же
         часового снимка — или None, если объявление не наше (или его ещё
         не видел снимок). НЕ делает отдельного запроса к Авито сверх того,

@@ -69,8 +69,8 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from app.avito.cursors import CursorRecord, CursorStore
 from app.channels.avito_payloads import (
@@ -128,7 +128,7 @@ def _chats_of(page: Any) -> list[dict]:
     return []
 
 
-def _created_of(node: dict) -> Optional[int]:
+def _created_of(node: dict) -> int | None:
     for key in ("created", "created_at", "timestamp"):
         value = node.get(key)
         if isinstance(value, int):
@@ -138,12 +138,12 @@ def _created_of(node: dict) -> Optional[int]:
     return None
 
 
-def _message_id_of(node: dict) -> Optional[str]:
+def _message_id_of(node: dict) -> str | None:
     value = node.get("id")
     return str(value) if isinstance(value, (str, int)) and str(value) else None
 
 
-def _chat_id_of(chat: dict) -> Optional[str]:
+def _chat_id_of(chat: dict) -> str | None:
     for key in ("id", "chat_id"):
         value = chat.get(key)
         if isinstance(value, (str, int)) and str(value):
@@ -174,7 +174,7 @@ class AvitoPoller:
         settings: Any,
         redis: Any = None,
         items_provider: Any = None,
-        now_fn=lambda: datetime.now(timezone.utc),
+        now_fn=lambda: datetime.now(UTC),
     ):
         self.client = client
         self.pipeline = pipeline
@@ -187,7 +187,7 @@ class AvitoPoller:
         # (25 запросов в минуту), и тесту незачем это воспроизводить.
         self.items_provider = items_provider
         self.now_fn = now_fn
-        self._lock_token: Optional[str] = None
+        self._lock_token: str | None = None
 
     # -- захват ------------------------------------------------------------
 
@@ -284,14 +284,19 @@ class AvitoPoller:
         logger.info(
             "poller: проход завершён — чатов %d, с новыми %d, подано сообщений %d, "
             "сбоев %d, запросов %d, обрезано хвостов %d, причины пропуска %s",
-            stats.chats_seen, stats.chats_with_new, stats.messages_fed,
-            stats.failed_chats, stats.requests, stats.truncated_chats, stats.reasons,
+            stats.chats_seen,
+            stats.chats_with_new,
+            stats.messages_fed,
+            stats.failed_chats,
+            stats.requests,
+            stats.truncated_chats,
+            stats.reasons,
         )
         return stats
 
     # -- список объявлений аккаунта ---------------------------------------
 
-    async def _own_item_ids(self) -> Optional[set[str]]:
+    async def _own_item_ids(self) -> set[str] | None:
         if self.items_provider is None:
             # Гуард выключен намеренно (тесты, локальный прогон) — тогда
             # решает только общий фильтр объявлений внутри конвейера.
@@ -366,9 +371,7 @@ class AvitoPoller:
 
         if last_created is None:
             if cursor is None:
-                await self._save_cursor(
-                    CursorRecord(chat_id, 0, (), "no_messages", item_id)
-                )
+                await self._save_cursor(CursorRecord(chat_id, 0, (), "no_messages", item_id))
             stats.skip("no_messages")
             return
 
@@ -386,19 +389,24 @@ class AvitoPoller:
 
         stats.chats_with_new += 1
         await self._drain_chat(
-            chat_id, item_id, _chat_type_of(chat), cursor, stats,
-            last_message_id=_message_id_of(last), last_created=last_created,
+            chat_id,
+            item_id,
+            _chat_type_of(chat),
+            cursor,
+            stats,
+            last_message_id=_message_id_of(last),
+            last_created=last_created,
         )
 
     async def _drain_chat(
         self,
         chat_id: str,
-        item_id: Optional[str],
+        item_id: str | None,
         chat_type: str,
         cursor: CursorRecord,
         stats: PassStats,
         *,
-        last_message_id: Optional[str],
+        last_message_id: str | None,
         last_created: int,
     ) -> None:
         new_messages = await self._fetch_new_messages(chat_id, cursor, stats)
@@ -423,7 +431,9 @@ class AvitoPoller:
             message_id = _message_id_of(message)
 
             event = build_event_from_polled_message(
-                message, chat_id=chat_id, item_id=item_id,
+                message,
+                chat_id=chat_id,
+                item_id=item_id,
                 chat_type=chat_type if item_id is not None else "u2u",
             )
             handled = await self.pipeline.handle_message(event, source="poller")
@@ -483,7 +493,8 @@ class AvitoPoller:
             logger.warning(
                 "poller: упёрлись в потолок страниц (%d x %d), часть истории чата "
                 "не прочитана — поднимите POLLER_MAX_MESSAGE_PAGES",
-                self.settings.poller_max_message_pages, page_size,
+                self.settings.poller_max_message_pages,
+                page_size,
                 extra={"chat_id": chat_id},
             )
 
@@ -495,8 +506,7 @@ class AvitoPoller:
         """False — захват потерян, писать нельзя и проход надо свернуть."""
         if not await self._still_own_lock():
             logger.error(
-                "poller: захват потерян на середине прохода — курсор не записан, "
-                "проход свёрнут",
+                "poller: захват потерян на середине прохода — курсор не записан, проход свёрнут",
                 extra={"chat_id": cursor.chat_id},
             )
             return False

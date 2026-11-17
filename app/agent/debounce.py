@@ -14,8 +14,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger("parmangal.debounce")
 
@@ -23,7 +23,7 @@ logger = logging.getLogger("parmangal.debounce")
 @dataclass
 class _Pending:
     parts: list[str] = field(default_factory=list)
-    task: Optional[asyncio.Task] = None
+    task: asyncio.Task | None = None
 
 
 class Debouncer:
@@ -61,12 +61,10 @@ class Debouncer:
             return
 
         merged = "\n".join(pending.parts)
-        logger.info(
-            "debounce flush", extra={"chat_id": chat_id, "parts": len(pending.parts)}
-        )
+        logger.info("debounce flush", extra={"chat_id": chat_id, "parts": len(pending.parts)})
         await self.handler(chat_id, merged)
 
-    async def flush_now(self, chat_id: str) -> Optional[str]:
+    async def flush_now(self, chat_id: str) -> str | None:
         """Отдать накопленное немедленно (используется в тестах и при
         аварийном завершении процесса, чтобы не потерять сообщения)."""
         pending = self._pending.pop(chat_id, None)

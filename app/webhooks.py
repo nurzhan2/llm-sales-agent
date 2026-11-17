@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import logging
 import secrets as secrets_mod
-from typing import Any, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
 
 from fastapi import APIRouter, BackgroundTasks, Request, Response, status
 
@@ -48,10 +48,10 @@ WEBHOOK_PATH_TEMPLATE = "/webhook/avito/{secret}"
 
 # Проставляется фабрикой приложения; инъекция нужна, чтобы тестам не требовалось
 # поднимать конвейер целиком.
-_handler: Optional[Callable[[dict], Awaitable[None]]] = None
+_handler: Callable[[dict], Awaitable[None]] | None = None
 
 
-def configure(handler: Optional[Callable[[dict], Awaitable[None]]] = None) -> None:
+def configure(handler: Callable[[dict], Awaitable[None]] | None = None) -> None:
     """Redis сюда больше не передаётся: дедупликация переехала в конвейер
     (см. шапку модуля и app/channels/inbound_dedup.py)."""
     global _handler

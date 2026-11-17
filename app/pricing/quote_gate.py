@@ -37,7 +37,7 @@ if TYPE_CHECKING:  # avoids a runtime import cycle
 RATCHET_WARNING = "Применён храповик диалога: клиенту уже называлась цена ниже."
 
 
-def apply_dialog_floor(quote: PriceQuote, state: "DialogConcessionState") -> PriceQuote:
+def apply_dialog_floor(quote: PriceQuote, state: DialogConcessionState) -> PriceQuote:
     """Clamp `quote` to the lowest price already promised in this dialog.
 
     Leaves the quote untouched when there is nothing to clamp to (no prior
@@ -54,9 +54,7 @@ def apply_dialog_floor(quote: PriceQuote, state: "DialogConcessionState") -> Pri
 
     clamped: Money = state.floor_reached
     hours = quote.occupied_hours
-    text = (
-        f"Итого {clamped} ₽ за {hours} ч" if hours is not None else f"Итого {clamped} ₽"
-    )
+    text = f"Итого {clamped} ₽ за {hours} ч" if hours is not None else f"Итого {clamped} ₽"
 
     return replace(
         quote,

@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable, Sequence
 from decimal import Decimal
-from typing import Any, Awaitable, Callable, Optional, Sequence
+from typing import Any
 
 from app.agent.providers.base import LLMProvider
 
@@ -27,9 +28,9 @@ class FailoverProvider(LLMProvider):
     def __init__(
         self,
         primary: LLMProvider,
-        fallback: Optional[LLMProvider] = None,
+        fallback: LLMProvider | None = None,
         max_consecutive_errors: int = 3,
-        on_switch: Optional[Callable[[str, str], Awaitable[None]]] = None,
+        on_switch: Callable[[str, str], Awaitable[None]] | None = None,
     ):
         self.primary = primary
         self.fallback = fallback
@@ -52,20 +53,25 @@ class FailoverProvider(LLMProvider):
         model: str,
         messages: list[dict],
         system: Any = None,
-        tools: Optional[Sequence[dict]] = None,
+        tools: Sequence[dict] | None = None,
         max_tokens: int,
-        tool_choice: Optional[dict] = None,
+        tool_choice: dict | None = None,
     ) -> Any:
         try:
             response = await self._active.complete(
-                model=model, messages=messages, system=system, tools=tools,
-                max_tokens=max_tokens, tool_choice=tool_choice,
+                model=model,
+                messages=messages,
+                system=system,
+                tools=tools,
+                max_tokens=max_tokens,
+                tool_choice=tool_choice,
             )
         except Exception:
             self._consecutive_errors += 1
             logger.warning(
                 "llm provider error #%s on %s",
-                self._consecutive_errors, self._active.name,
+                self._consecutive_errors,
+                self._active.name,
             )
             if (
                 self.fallback is not None
@@ -76,8 +82,12 @@ class FailoverProvider(LLMProvider):
                 # Один запрос не должен провалиться только потому, что
                 # переключение случилось прямо на нём — пробуем сразу же.
                 response = await self._active.complete(
-                    model=model, messages=messages, system=system, tools=tools,
-                    max_tokens=max_tokens, tool_choice=tool_choice,
+                    model=model,
+                    messages=messages,
+                    system=system,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    tool_choice=tool_choice,
                 )
                 self._consecutive_errors = 0
             else:

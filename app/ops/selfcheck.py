@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Awaitable, Callable, Optional
+from datetime import UTC, date, datetime, time, timedelta, timezone
+from typing import Any
 
 from app.kb.title_zone import zone_from_title
 
@@ -36,10 +37,10 @@ SILENT_AFTER_MINUTES = 15
 class ListingFact:
     item_id: str
     title: str
-    price: Optional[int]
-    zone_id: Optional[str]          # из item_zone_map
-    category: Optional[str]         # из item_zone_map
-    denied: bool                    # item_scope решил «не наше»
+    price: int | None
+    zone_id: str | None  # из item_zone_map
+    category: str | None  # из item_zone_map
+    denied: bool  # item_scope решил «не наше»
 
 
 @dataclass
@@ -47,31 +48,31 @@ class OverrideFact:
     id: int
     path: str
     value: Any
-    created_at: Optional[datetime]
+    created_at: datetime | None
 
 
 @dataclass
 class Facts:
     now: datetime
-    listings: Optional[list[ListingFact]] = None
-    zone_staff: dict[str, str] = field(default_factory=dict)   # зона -> staff_id
-    yclients_staff: Optional[set[str]] = None
-    availability: dict[str, str] = field(default_factory=dict) # зона -> free/busy/unknown
-    overrides: Optional[list[OverrideFact]] = None
-    photo_ok: Optional[bool] = None
+    listings: list[ListingFact] | None = None
+    zone_staff: dict[str, str] = field(default_factory=dict)  # зона -> staff_id
+    yclients_staff: set[str] | None = None
+    availability: dict[str, str] = field(default_factory=dict)  # зона -> free/busy/unknown
+    overrides: list[OverrideFact] | None = None
+    photo_ok: bool | None = None
     stats: dict[str, int] = field(default_factory=dict)
     silent_chats: list[str] = field(default_factory=list)
     # Сколько раз за сутки сработали рубежи (выдуманная цена, занятость без
     # проверки, «бронь на словах»…): рост — первый признак, что модель стала
     # ошибаться чаще, раньше, чем это заметит заказчик.
     guard_counts: dict[str, int] = field(default_factory=dict)
-    errors: list[str] = field(default_factory=list)            # упавшие проверки
+    errors: list[str] = field(default_factory=list)  # упавшие проверки
 
 
 @dataclass
 class Report:
-    problems: list[str] = field(default_factory=list)   # сломано, нужно чинить
-    warnings: list[str] = field(default_factory=list)   # стоит посмотреть
+    problems: list[str] = field(default_factory=list)  # сломано, нужно чинить
+    warnings: list[str] = field(default_factory=list)  # стоит посмотреть
     stats_line: str = ""
 
     @property
@@ -81,8 +82,8 @@ class Report:
     def render(self) -> str:
         head = (
             "✅ Самопроверка ПарМангал: всё в порядке"
-            if self.ok else
-            ("🔴" if self.problems else "🟡") + " Самопроверка ПарМангал"
+            if self.ok
+            else ("🔴" if self.problems else "🟡") + " Самопроверка ПарМангал"
         )
         parts = [head]
         if self.problems:
@@ -94,7 +95,7 @@ class Report:
         return "\n".join(parts)
 
 
-def _num(v: Any) -> Optional[float]:
+def _num(v: Any) -> float | None:
     if isinstance(v, dict):
         v = v.get("value")
     try:
@@ -103,15 +104,14 @@ def _num(v: Any) -> Optional[float]:
         return None
 
 
-def zone_prices(zone: Any) -> Optional[list[float]]:
+def zone_prices(zone: Any) -> list[float] | None:
     """Все цены зоны из каталога (почасовые, суточные, пакет «весь день»).
     None — цену по объявлению сверять не с чем (шатёр: цена от гостей)."""
     pricing = getattr(zone, "pricing", None) or {}
     if pricing.get("rate_depends_on_guests"):
         return None
     prices = [
-        p for k, v in pricing.items()
-        if ("per_hour" in k or "per_day" in k) and (p := _num(v))
+        p for k, v in pricing.items() if ("per_hour" in k or "per_day" in k) and (p := _num(v))
     ]
     package = _num((getattr(zone, "day_package", None) or {}).get("price"))
     if package:
@@ -119,7 +119,7 @@ def zone_prices(zone: Any) -> Optional[list[float]]:
     return prices or None
 
 
-def _zones_for(kb: Any, zone_id: Optional[str], category: Optional[str]) -> list[Any]:
+def _zones_for(kb: Any, zone_id: str | None, category: str | None) -> list[Any]:
     zones = list(kb.catalog.zones)
     if zone_id:
         return [z for z in zones if z.id == zone_id]
@@ -179,9 +179,7 @@ def check_yclients(facts: Facts, report: Report) -> None:
             facts.yclients_staff is None
             or str(facts.zone_staff.get(zone_id)) in facts.yclients_staff
         ):
-            report.problems.append(
-                f"Зона {zone_id}: YCLIENTS не отдал расписание на завтра."
-            )
+            report.problems.append(f"Зона {zone_id}: YCLIENTS не отдал расписание на завтра.")
 
 
 def check_overrides(facts: Facts, report: Report) -> None:
@@ -211,8 +209,9 @@ def check_runtime(facts: Facts, report: Report) -> None:
         )
     guards = sum(facts.guard_counts.values())
     if guards >= GUARD_WARN_PER_DAY:
-        top = ", ".join(f"{k} — {v}" for k, v in sorted(
-            facts.guard_counts.items(), key=lambda kv: -kv[1])[:3])
+        top = ", ".join(
+            f"{k} — {v}" for k, v in sorted(facts.guard_counts.items(), key=lambda kv: -kv[1])[:3]
+        )
         report.warnings.append(
             f"Защита поправила ответы бота {guards} раз за сутки ({top}) — "
             "модель стала ошибаться чаще обычного, стоит посмотреть диалоги."
@@ -298,12 +297,9 @@ async def _listings(session_factory, items_client, settings) -> list[ListingFact
 
     listings = await items_client.list_all_items(status="active")
     async with session_factory() as session:
-        zmap = {
-            r.item_id: r for r in (await session.execute(select(ItemZoneMap))).scalars()
-        }
+        zmap = {r.item_id: r for r in (await session.execute(select(ItemZoneMap))).scalars()}
         scope = {
-            r.item_id: r.decision
-            for r in (await session.execute(select(ItemScope))).scalars()
+            r.item_id: r.decision for r in (await session.execute(select(ItemScope))).scalars()
         }
     raw = getattr(settings, "avito_blocked_items", None) or []
     if isinstance(raw, str):
@@ -312,11 +308,16 @@ async def _listings(session_factory, items_client, settings) -> list[ListingFact
     out = []
     for item in listings:
         row = zmap.get(str(item.item_id))
-        out.append(ListingFact(
-            item_id=str(item.item_id), title=item.title or "", price=item.price,
-            zone_id=getattr(row, "zone_id", None), category=getattr(row, "category", None),
-            denied=scope.get(str(item.item_id)) == "deny" or str(item.item_id) in blocked,
-        ))
+        out.append(
+            ListingFact(
+                item_id=str(item.item_id),
+                title=item.title or "",
+                price=item.price,
+                zone_id=getattr(row, "zone_id", None),
+                category=getattr(row, "category", None),
+                denied=scope.get(str(item.item_id)) == "deny" or str(item.item_id) in blocked,
+            )
+        )
     return out
 
 
@@ -336,8 +337,11 @@ async def _photo_canary(avito_client) -> bool:
         return False
     uploaded = await avito_client.upload_image(path.read_bytes(), path.name)
     urls = [
-        u for v in (uploaded or {}).values() if isinstance(v, dict)
-        for u in v.values() if isinstance(u, str) and u.startswith("http")
+        u
+        for v in (uploaded or {}).values()
+        if isinstance(v, dict)
+        for u in v.values()
+        if isinstance(u, str) and u.startswith("http")
     ]
     if not urls:
         return False
@@ -353,17 +357,29 @@ async def _stats(session_factory, now: datetime) -> tuple[dict[str, int], list[s
     quiet = now - timedelta(minutes=SILENT_AFTER_MINUTES)
     async with session_factory() as session:
         row = (await session.execute(text(_STATS_SQL), {"since": since})).mappings().one()
-        new_chats = (await session.execute(
-            text("select count(*) from chats where created_at > :since"), {"since": since}
-        )).scalar_one()
-        silent = [r[0] for r in (await session.execute(
-            text(_SILENT_SQL), {"since": since, "quiet": quiet}
-        )).all()]
-        metas = [r[0] for r in (await session.execute(
-            text("select llm_meta from messages where direction = 'outgoing' "
-                 "and created_at > :since and llm_meta is not null"),
-            {"since": since},
-        )).all()]
+        new_chats = (
+            await session.execute(
+                text("select count(*) from chats where created_at > :since"), {"since": since}
+            )
+        ).scalar_one()
+        silent = [
+            r[0]
+            for r in (
+                await session.execute(text(_SILENT_SQL), {"since": since, "quiet": quiet})
+            ).all()
+        ]
+        metas = [
+            r[0]
+            for r in (
+                await session.execute(
+                    text(
+                        "select llm_meta from messages where direction = 'outgoing' "
+                        "and created_at > :since and llm_meta is not null"
+                    ),
+                    {"since": since},
+                )
+            ).all()
+        ]
     stats = {k: int(v or 0) for k, v in dict(row).items()}
     stats["new_chats"] = int(new_chats or 0)
     return stats, silent, count_guards(metas)
@@ -393,12 +409,18 @@ def count_guards(metas) -> dict[str, int]:
 
 
 async def collect_facts(
-    *, session_factory, items_client, avito_client, booking_provider, zone_mapping,
-    settings, now: Optional[datetime] = None,
+    *,
+    session_factory,
+    items_client,
+    avito_client,
+    booking_provider,
+    zone_mapping,
+    settings,
+    now: datetime | None = None,
 ) -> Facts:
     from app.kb.override_store import SqlAlchemyOverrideStore
 
-    facts = Facts(now=now or datetime.now(timezone.utc))
+    facts = Facts(now=now or datetime.now(UTC))
 
     facts.listings = await _guard(
         facts, "объявления Авито", _listings(session_factory, items_client, settings)
@@ -409,7 +431,8 @@ async def collect_facts(
         if row.get("enabled", True) and row.get("staff_id"):
             facts.zone_staff[zone_id] = str(row["staff_id"])
     facts.yclients_staff = await _guard(
-        facts, "ресурсы YCLIENTS",
+        facts,
+        "ресурсы YCLIENTS",
         _yclients_staff(booking_provider, settings.yclients_company_id),
     )
     tomorrow = (facts.now.astimezone(MSK) + timedelta(days=1)).date()
@@ -439,6 +462,7 @@ async def collect_facts(
 
 # ---------------------------------------------------------------- расписание
 
+
 def seconds_until(hour_msk: int, now: datetime) -> float:
     local = now.astimezone(MSK)
     target = datetime.combine(local.date(), time(hour_msk), tzinfo=MSK)
@@ -452,7 +476,7 @@ async def supervised_selfcheck(
     send: Callable[[str], Awaitable[Any]],
     *,
     hour_msk: int,
-    now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    now_fn: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
 ) -> None:
     """Раз в сутки в hour_msk по Москве. Сбой прохода изолирован, как у

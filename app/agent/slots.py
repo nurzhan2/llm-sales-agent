@@ -33,10 +33,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date as DateType
 from datetime import time as TimeType
-from typing import Optional, Sequence
 
 from app.agent.dates import resolve_relative_date
 from app.agent.one_question import is_question, split_sentences
@@ -48,22 +48,45 @@ from app.agent.tool_forcing import ZONE_WORDS
 
 # «нас четверо», «вшестером» — в переписке это обычнее цифры.
 _GUESTS_WORDS: dict[str, int] = {
-    "вдвоём": 2, "вдвоем": 2, "двое": 2, "втроём": 3, "втроем": 3, "трое": 3,
-    "вчетвером": 4, "четверо": 4, "впятером": 5, "пятеро": 5,
-    "вшестером": 6, "шестеро": 6, "всемером": 7, "семеро": 7,
-    "ввосьмером": 8, "восьмеро": 8, "вдевятером": 9, "девятеро": 9,
-    "вдесятером": 10, "десятеро": 10,
+    "вдвоём": 2,
+    "вдвоем": 2,
+    "двое": 2,
+    "втроём": 3,
+    "втроем": 3,
+    "трое": 3,
+    "вчетвером": 4,
+    "четверо": 4,
+    "впятером": 5,
+    "пятеро": 5,
+    "вшестером": 6,
+    "шестеро": 6,
+    "всемером": 7,
+    "семеро": 7,
+    "ввосьмером": 8,
+    "восьмеро": 8,
+    "вдевятером": 9,
+    "девятеро": 9,
+    "вдесятером": 10,
+    "десятеро": 10,
 }
 _GUESTS_WORDS_RE = re.compile(r"\b(" + "|".join(_GUESTS_WORDS) + r")\b", re.IGNORECASE)
 
 _HOURS_WORDS: dict[str, int] = {
-    "пару": 2, "два": 2, "две": 2, "три": 3, "четыре": 4, "пять": 5,
-    "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10,
-    "одиннадцать": 11, "двенадцать": 12,
+    "пару": 2,
+    "два": 2,
+    "две": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+    "шесть": 6,
+    "семь": 7,
+    "восемь": 8,
+    "девять": 9,
+    "десять": 10,
+    "одиннадцать": 11,
+    "двенадцать": 12,
 }
-_HOURS_WORDS_RE = re.compile(
-    r"\bна\s+(" + "|".join(_HOURS_WORDS) + r")\s+час\w*", re.IGNORECASE
-)
+_HOURS_WORDS_RE = re.compile(r"\bна\s+(" + "|".join(_HOURS_WORDS) + r")\s+час\w*", re.IGNORECASE)
 
 # --------------------------------------------------------------------------
 # Гости
@@ -116,9 +139,7 @@ _RANGE_RE = re.compile(
     re.IGNORECASE,
 )
 # «с 13:00», «в 16.30», «к 18:00»
-_TIME_WITH_PREP_RE = re.compile(
-    r"\b(?:с|со|в|во|к|ко)\s*(\d{1,2})[:.](\d{2})\b", re.IGNORECASE
-)
+_TIME_WITH_PREP_RE = re.compile(r"\b(?:с|со|в|во|к|ко)\s*(\d{1,2})[:.](\d{2})\b", re.IGNORECASE)
 # «в 16», «с 13 часов», «к 18» — час без минут. Единицы гостей и месяцы
 # исключены явно: «в 6 человек» — это не время, «в 20 сентября» — не время.
 _HOUR_WITH_PREP_RE = re.compile(
@@ -148,11 +169,11 @@ class Slots:
     2026-08-29, см. app/agent/dates.py).
     """
 
-    date: Optional[DateType] = None
+    date: DateType | None = None
     date_said: str = ""
-    guests: Optional[int] = None
-    hours: Optional[int] = None
-    start_time: Optional[TimeType] = None
+    guests: int | None = None
+    hours: int | None = None
+    start_time: TimeType | None = None
     zone: str = ""
     # Откуда взялась зона: из объявления (клиент пришёл с карточки) или из
     # его собственных слов. В подсказке это разные утверждения, и путать их
@@ -175,8 +196,8 @@ class Slots:
         return tuple(names)
 
 
-def _guests_in(text: str) -> Optional[int]:
-    value: Optional[int] = None
+def _guests_in(text: str) -> int | None:
+    value: int | None = None
     for match in _GUESTS_RE.finditer(text):
         digits = next((g for g in match.groups() if g), None)
         if digits is None:
@@ -189,8 +210,8 @@ def _guests_in(text: str) -> Optional[int]:
     return value
 
 
-def _hours_in(text: str) -> Optional[int]:
-    value: Optional[int] = None
+def _hours_in(text: str) -> int | None:
+    value: int | None = None
     for match in _HOURS_RE.finditer(text):
         digits = next((g for g in match.groups() if g), None)
         if digits is not None and 1 <= int(digits) <= _MAX_HOURS:
@@ -200,23 +221,23 @@ def _hours_in(text: str) -> Optional[int]:
     for match in _BARE_HOURS_RE.finditer(text):
         previous = (match.group(1) or "").strip()
         if _TIME_PREPOSITION.match(previous):
-            continue          # «в 16 часов» — начало, а не длительность
+            continue  # «в 16 часов» — начало, а не длительность
         number = int(match.group(2))
         if 1 <= number <= _MAX_HOURS:
             value = number
     return value
 
 
-def _time_or_none(hour: int, minute: int = 0) -> Optional[TimeType]:
+def _time_or_none(hour: int, minute: int = 0) -> TimeType | None:
     if 0 <= hour <= 23 and 0 <= minute <= 59:
         return TimeType(hour, minute)
     return None
 
 
-def _range_in(text: str) -> tuple[Optional[TimeType], Optional[int]]:
+def _range_in(text: str) -> tuple[TimeType | None, int | None]:
     """(начало, длительность) из «с 13 до 17» — или (None, None)."""
-    start: Optional[TimeType] = None
-    hours: Optional[int] = None
+    start: TimeType | None = None
+    hours: int | None = None
     for match in _RANGE_RE.finditer(text):
         begin = _time_or_none(int(match.group(1)), int(match.group(2) or 0))
         end = _time_or_none(int(match.group(3)), int(match.group(4) or 0))
@@ -228,8 +249,8 @@ def _range_in(text: str) -> tuple[Optional[TimeType], Optional[int]]:
     return start, hours
 
 
-def _start_time_in(text: str) -> Optional[TimeType]:
-    value: Optional[TimeType] = None
+def _start_time_in(text: str) -> TimeType | None:
+    value: TimeType | None = None
     for match in _BARE_COLON_TIME_RE.finditer(text):
         value = _time_or_none(int(match.group(1)), int(match.group(2))) or value
     for match in _BARE_SPACED_TIME_RE.finditer(text):
@@ -248,12 +269,12 @@ def _start_time_in(text: str) -> Optional[TimeType]:
 
 
 def extract_slots(
-    history: Optional[Sequence[dict]],
+    history: Sequence[dict] | None,
     user_text: str,
     *,
     listing_zone: str = "",
-    zone_words: Optional[re.Pattern] = None,
-    today: Optional[DateType] = None,
+    zone_words: re.Pattern | None = None,
+    today: DateType | None = None,
 ) -> Slots:
     """Слоты из всей переписки: старые сообщения, затем текущее.
 
@@ -265,19 +286,15 @@ def extract_slots(
     """
     zone_words = zone_words or ZONE_WORDS
 
-    date: Optional[DateType] = None
+    date: DateType | None = None
     date_said = ""
-    guests: Optional[int] = None
-    hours: Optional[int] = None
-    start_time: Optional[TimeType] = None
+    guests: int | None = None
+    hours: int | None = None
+    start_time: TimeType | None = None
     zone = listing_zone
     zone_from_listing = bool(listing_zone)
 
-    messages = [
-        (msg.get("content") or "")
-        for msg in (history or [])
-        if msg.get("role") == "user"
-    ]
+    messages = [(msg.get("content") or "") for msg in (history or []) if msg.get("role") == "user"]
     messages.append(user_text or "")
 
     for text in messages:
@@ -310,8 +327,12 @@ def extract_slots(
             zone_from_listing = False
 
     return Slots(
-        date=date, date_said=date_said, guests=guests,
-        hours=hours, start_time=start_time, zone=zone,
+        date=date,
+        date_said=date_said,
+        guests=guests,
+        hours=hours,
+        start_time=start_time,
+        zone=zone,
         zone_from_listing=zone_from_listing,
     )
 
@@ -324,20 +345,50 @@ def extract_slots(
 # «на какое число и на сколько часов» попадёт в оба списка, и это верно —
 # спрошены оба.
 _QUESTION_MARKERS: tuple[tuple[str, re.Pattern], ...] = (
-    ("date", re.compile(r"како[ем]\s+чис|какую\s+дат|какая\s+дат|на\s+какой\s+день|"
-                        r"когда\s+(?:планир|хотит|удобн)", re.IGNORECASE)),
-    ("guests", re.compile(r"скольк\w*\s+(?:будет\s+)?(?:гост|человек|чел\b|вас|персон)|"
-                          r"на\s+какое\s+количество", re.IGNORECASE)),
-    ("hours", re.compile(r"на\s+скольк\w*\s+час|скольк\w*\s+час|как\s+долго|"
-                         r"какая\s+длительн", re.IGNORECASE)),
-    ("start_time", re.compile(r"со\s+скольк|во\s+скольк|к\s+какому\s+времени|"
-                              r"во\s+сколько\s+вас\s+ждать", re.IGNORECASE)),
-    ("zone", re.compile(r"какую\s+бан|какая\s+зон|какую\s+зон|что\s+вас\s+интересует|"
-                        r"какой\s+формат", re.IGNORECASE)),
+    (
+        "date",
+        re.compile(
+            r"како[ем]\s+чис|какую\s+дат|какая\s+дат|на\s+какой\s+день|"
+            r"когда\s+(?:планир|хотит|удобн)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "guests",
+        re.compile(
+            r"скольк\w*\s+(?:будет\s+)?(?:гост|человек|чел\b|вас|персон)|"
+            r"на\s+какое\s+количество",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "hours",
+        re.compile(
+            r"на\s+скольк\w*\s+час|скольк\w*\s+час|как\s+долго|"
+            r"какая\s+длительн",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "start_time",
+        re.compile(
+            r"со\s+скольк|во\s+скольк|к\s+какому\s+времени|"
+            r"во\s+сколько\s+вас\s+ждать",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "zone",
+        re.compile(
+            r"какую\s+бан|какая\s+зон|какую\s+зон|что\s+вас\s+интересует|"
+            r"какой\s+формат",
+            re.IGNORECASE,
+        ),
+    ),
 )
 
 
-def asked_slots(history: Optional[Sequence[dict]]) -> tuple[str, ...]:
+def asked_slots(history: Sequence[dict] | None) -> tuple[str, ...]:
     """Слоты, о которых агент уже спрашивал в этом чате.
 
     Смотрим ТОЛЬКО вопросительные предложения реплик агента: «на какое
@@ -366,8 +417,18 @@ def asked_slots(history: Optional[Sequence[dict]]) -> tuple[str, ...]:
 # --------------------------------------------------------------------------
 
 _RU_MONTHS_GENITIVE = (
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
 )
 
 _SLOT_TITLES = {
@@ -408,7 +469,8 @@ def describe_slots(slots: Slots) -> str:
         parts.append(f"дата — {_human_date(slots.date)} ({slots.date.isoformat()})")
     if slots.zone:
         parts.append(
-            f"зона — {slots.zone}" if slots.zone_from_listing
+            f"зона — {slots.zone}"
+            if slots.zone_from_listing
             else f"зона — клиент сказал «{slots.zone}»"
         )
     if slots.hours is not None:
@@ -420,7 +482,7 @@ def describe_slots(slots: Slots) -> str:
     return "; ".join(parts)
 
 
-def next_missing_slot(slots: Slots, *, needed: Sequence[str] = SLOT_PRIORITY) -> Optional[str]:
+def next_missing_slot(slots: Slots, *, needed: Sequence[str] = SLOT_PRIORITY) -> str | None:
     """Первый по важности слот, которого не хватает, — или None.
 
     Порядок берётся из SLOT_PRIORITY, а не из порядка `needed`: вызывающий
@@ -436,7 +498,7 @@ def next_missing_slot(slots: Slots, *, needed: Sequence[str] = SLOT_PRIORITY) ->
     return None
 
 
-def build_context_hint(slots: Slots, asked: Sequence[str] = ()) -> Optional[str]:
+def build_context_hint(slots: Slots, asked: Sequence[str] = ()) -> str | None:
     """Служебная подсказка модели про этот ход — или None, если сказать нечего.
 
     Идёт в СОДЕРЖИМОЕ хода, а не в системный промт: она меняется от

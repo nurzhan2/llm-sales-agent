@@ -25,7 +25,7 @@ def get_engine() -> AsyncEngine:
     return create_async_engine(
         url,
         connect_args=connect_args,
-        pool_pre_ping=True,   # a stale connection must not surface as a 500
+        pool_pre_ping=True,  # a stale connection must not surface as a 500
         echo=False,
     )
 

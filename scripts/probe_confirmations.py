@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from app.agent.loop import HANDED_TO_MANAGER, AgentLoop
+from app.agent.loop import AgentLoop
 from app.agent.providers.base import LLMProvider
 from app.agent.providers.deepseek_provider import BASE_URL as DEEPSEEK_BASE_URL
 from app.agent.providers.deepseek_provider import DeepSeekProvider
@@ -59,9 +59,11 @@ REPORT_JSON = ROOT / "docs" / "quality" / "confirmations_probe.json"
 # ответил расчётом и спросил, бронируем ли.
 HISTORY = (
     {"role": "user", "content": "баня Русский стиль, 20 сентября, с 13 до 17, нас шестеро"},
-    {"role": "assistant",
-     "content": "«Русский стиль» 20 сентября с 13:00 до 17:00 свободна. Выходной "
-                "тариф 3500 ₽/час, за 4 часа выйдет 14 000 ₽. Бронируем?"},
+    {
+        "role": "assistant",
+        "content": "«Русский стиль» 20 сентября с 13:00 до 17:00 свободна. Выходной "
+        "тариф 3500 ₽/час, за 4 часа выйдет 14 000 ₽. Бронируем?",
+    },
 )
 
 PHRASES = ("ну что, подойдёт?", "ок", "да, берём", "годится", "давайте")
@@ -105,8 +107,7 @@ async def probe(repeats: int) -> dict:
     from app.config import get_settings
 
     settings = get_settings()
-    api_key = (settings.deepseek_api_key.get_secret_value()
-               or os.environ.get("DEEPSEEK_API_KEY", ""))
+    api_key = settings.deepseek_api_key.get_secret_value() or os.environ.get("DEEPSEEK_API_KEY", "")
     if not api_key:
         raise SystemExit("нет DEEPSEEK_API_KEY — замер живой, заглушка здесь бессмысленна")
 
@@ -114,17 +115,19 @@ async def probe(repeats: int) -> dict:
     dialog_model, classifier_model = default_models_for("deepseek")
     # Свой клиент с запасом повторов: замер не должен падать на сетевых
     # обрывах машины, с которой его запускают. Прод-настройки не трогаются.
-    raw = AsyncAnthropic(api_key=api_key, base_url=DEEPSEEK_BASE_URL,
-                         max_retries=8, timeout=90)
+    raw = AsyncAnthropic(api_key=api_key, base_url=DEEPSEEK_BASE_URL, max_retries=8, timeout=90)
     provider = _LabelRecorder(
         DeepSeekProvider(client=raw, enable_thinking=settings.deepseek_enable_thinking),
         classifier_model,
     )
-    agent = AgentLoop(provider, kb, dialog_model=dialog_model,
-                      classifier_model=classifier_model)
+    agent = AgentLoop(provider, kb, dialog_model=dialog_model, classifier_model=classifier_model)
 
-    report: dict = {"model": dialog_model, "classifier": classifier_model,
-                    "repeats": repeats, "phrases": []}
+    report: dict = {
+        "model": dialog_model,
+        "classifier": classifier_model,
+        "repeats": repeats,
+        "phrases": [],
+    }
     for phrase in PHRASES:
         entry = {"phrase": phrase, "attempts": []}
         for _ in range(repeats):
@@ -146,9 +149,11 @@ async def probe(repeats: int) -> dict:
                 "text": result.text,
             }
             entry["attempts"].append(attempt)
-            print(f"  [{phrase}] метка {attempt['raw_label']} -> {attempt['final_label']}"
-                  f"{'  К ЧЕЛОВЕКУ ПО МЕТКЕ' if attempt['human_path'] else ''}",
-                  file=sys.stderr)
+            print(
+                f"  [{phrase}] метка {attempt['raw_label']} -> {attempt['final_label']}"
+                f"{'  К ЧЕЛОВЕКУ ПО МЕТКЕ' if attempt['human_path'] else ''}",
+                file=sys.stderr,
+            )
         report["phrases"].append(entry)
     return report
 
@@ -186,7 +191,11 @@ def render(report: dict) -> str:
                 lines.append(f"{i}. ⚠️ {a['error'][:200]}")
                 continue
             mark = " 🚫 К ЧЕЛОВЕКУ ПО МЕТКЕ" if a["human_path"] else ""
-            esc = f" (эскалация: {a['escalation_reason']})" if a["escalated"] and not a["human_path"] else ""
+            esc = (
+                f" (эскалация: {a['escalation_reason']})"
+                if a["escalated"] and not a["human_path"]
+                else ""
+            )
             lines.append(f"{i}.{mark}{esc} {a['text'][:300].replace(chr(10), ' / ')}")
         lines.append("")
     broken = sum(1 for p in report["phrases"] for a in p["attempts"] if a.get("error"))
@@ -212,9 +221,11 @@ async def main() -> int:
     for p in report["phrases"]:
         done = _ok(p["attempts"])
         labels = collections.Counter(a["raw_label"] for a in done)
-        print(f"{p['phrase']!r:24} сырые метки {dict(labels)}   "
-              f"к человеку по метке {sum(a['human_path'] for a in done)}/{len(done)}   "
-              f"эскалаций инструментом {sum(a['escalated'] and not a['human_path'] for a in done)}")
+        print(
+            f"{p['phrase']!r:24} сырые метки {dict(labels)}   "
+            f"к человеку по метке {sum(a['human_path'] for a in done)}/{len(done)}   "
+            f"эскалаций инструментом {sum(a['escalated'] and not a['human_path'] for a in done)}"
+        )
     print(f"\nОтчёт: {REPORT_MD}")
 
     # Упавшая попытка — не «не ушёл к человеку». Первый прогон упал целиком

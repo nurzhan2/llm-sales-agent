@@ -9,31 +9,30 @@ BASE_URL, тот же паттерн ретраев.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
 
 import httpx
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.channels import avito_endpoints as ep
 from app.channels.avito import AvitoAuth, _is_retryable
 from app.config import Settings, get_settings
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 
 @dataclass(frozen=True)
 class Listing:
     item_id: str
     title: str
-    url: Optional[str]
+    url: str | None
     status: str
-    price: Optional[int]
-    address: Optional[str]
+    price: int | None
+    address: str | None
     # Категория Авито («Вакансии», «Резюме», ...). Нужна item_scope: вакансия
     # «Администратор базы отдыха» (2026-09-17) не содержит ни одного слова из
     # deny-списка, и агент ответил кандидату прайсом на баню.
-    category: Optional[str] = None
+    category: str | None = None
 
 
-def _category_name(item: dict) -> Optional[str]:
+def _category_name(item: dict) -> str | None:
     raw = item.get("category")
     if isinstance(raw, dict):
         name = raw.get("name")
@@ -44,9 +43,9 @@ def _category_name(item: dict) -> Optional[str]:
 class AvitoItemsClient:
     def __init__(
         self,
-        settings: Optional[Settings] = None,
-        auth: Optional[AvitoAuth] = None,
-        client: Optional[httpx.AsyncClient] = None,
+        settings: Settings | None = None,
+        auth: AvitoAuth | None = None,
+        client: httpx.AsyncClient | None = None,
     ):
         self.settings = settings or get_settings()
         self.auth = auth or AvitoAuth(self.settings)
@@ -83,7 +82,8 @@ class AvitoItemsClient:
                 await self.auth.invalidate()
                 token = await self.auth.get_token(force_refresh=True)
                 response = await self._client.request(
-                    method, path,
+                    method,
+                    path,
                     headers={ep.AUTH_HEADER: f"{ep.AUTH_SCHEME} {token}"},
                     params={"page": page_num, "per_page": per_page, "status": status},
                 )

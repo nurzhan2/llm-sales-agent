@@ -25,19 +25,26 @@
 
 from __future__ import annotations
 
-from datetime import date as DateType, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
+from datetime import date as DateType
 
 MOSCOW_TZ = timezone(timedelta(hours=3), name="MSK")
 
 # Дни недели по-русски — для строки текущей даты в системном промте.
 WEEKDAYS_RU = (
-    "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье",
+    "понедельник",
+    "вторник",
+    "среда",
+    "четверг",
+    "пятница",
+    "суббота",
+    "воскресенье",
 )
 
 
 def moscow_now() -> datetime:
     """Текущий момент в московском поясе (aware datetime)."""
-    return datetime.now(timezone.utc).astimezone(MOSCOW_TZ)
+    return datetime.now(UTC).astimezone(MOSCOW_TZ)
 
 
 def moscow_today() -> DateType:

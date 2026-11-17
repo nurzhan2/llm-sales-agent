@@ -17,8 +17,8 @@ R13 в app.pricing.concessions, не здесь.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, time as TimeType, timedelta
-from typing import Optional
+from datetime import datetime, timedelta
+from datetime import time as TimeType
 
 from app.clock import MOSCOW_TZ
 from app.kb.loader import WorkingWindow
@@ -36,8 +36,8 @@ class TouchState:
     перехода можно было гонять в тестах без базы."""
 
     touch_count: int = 0
-    last_touch_at: Optional[datetime] = None
-    next_touch_due_at: Optional[datetime] = None
+    last_touch_at: datetime | None = None
+    next_touch_due_at: datetime | None = None
 
 
 def record_first_touch(state: TouchState, now: datetime, delay_minutes: int) -> TouchState:
@@ -101,17 +101,19 @@ def is_within_working_hours(dt: datetime, window: WorkingWindow) -> bool:
     t = moment.time()
     if start <= end:
         return start <= t < end
-    return t >= start or t < end   # окно через полночь — на всякий случай, сейчас не наш случай
+    return t >= start or t < end  # окно через полночь — на всякий случай, сейчас не наш случай
 
 
 @dataclass(frozen=True)
 class TouchOutcome:
     state: TouchState
-    template_key: str          # TEMPLATE_SOFT | TEMPLATE_DIRECT
+    template_key: str  # TEMPLATE_SOFT | TEMPLATE_DIRECT
     touch_number: int
 
 
-def advance_touch(state: TouchState, now: datetime, delay_minutes: int, max_count: int) -> TouchOutcome:
+def advance_touch(
+    state: TouchState, now: datetime, delay_minutes: int, max_count: int
+) -> TouchOutcome:
     """Диалог созрел (`is_due` уже True) — какой шаблон слать и как
     обновить состояние. Ничего не отправляет сама, только считает —
     отправка (и то, что произойдёт при DRY_RUN) остаётся за вызывающим

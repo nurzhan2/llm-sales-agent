@@ -44,12 +44,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
+
+from app.clock import MOSCOW_TZ  # единый источник, см. app/clock.py
 
 logger = logging.getLogger("parmangal.outbound.daily_limit")
 
-from app.clock import MOSCOW_TZ  # единый источник, см. app/clock.py
 KEY_PREFIX = "outbound:daily_count:"
 # С запасом на двое суток: TTL обновляется на каждый инкремент, ключ не
 # накапливается годами, даже если инкременты идут секунда в секунду с
@@ -82,13 +83,15 @@ class DailyLimitResult:
 
 
 async def check_and_increment(
-    redis: Any, limit: int, now: Optional[datetime] = None,
+    redis: Any,
+    limit: int,
+    now: datetime | None = None,
 ) -> DailyLimitResult:
     """Лимит `<= 0` — выключен, в Redis за ним даже не ходим."""
     if limit <= 0:
         return DailyLimitResult(allowed=True, count=0, limit=limit, just_exceeded=False)
 
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     key = _key_for(now)
 
     if redis is None:
@@ -107,7 +110,11 @@ async def check_and_increment(
             "отправка заблокирована (fail closed, как и kill switch)"
         )
         return DailyLimitResult(
-            allowed=False, count=-1, limit=limit, just_exceeded=False, redis_unavailable=True,
+            allowed=False,
+            count=-1,
+            limit=limit,
+            just_exceeded=False,
+            redis_unavailable=True,
         )
 
     return DailyLimitResult(

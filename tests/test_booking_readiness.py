@@ -72,35 +72,54 @@ class _Provider:
 
     async def check_availability(self, zone_id, date, start_time=None, hours=None):
         from app.booking.base import Availability, AvailabilityStatus
+
         return Availability(AvailabilityStatus.FREE)
 
     async def get_free_slots(self, zone_id, date):
         from app.booking.base import Availability, AvailabilityStatus
+
         return Availability(AvailabilityStatus.FREE)
 
     async def create_booking(self, request):
         from app.booking.base import BookingResult
+
         self.bookings.append(request)
         return BookingResult(True, booking_id="rec-1")
 
 
 async def test_a_switched_on_flag_without_readiness_never_reaches_yclients(
-    kb_without_handoff, monkeypatch, caplog,
+    kb_without_handoff,
+    monkeypatch,
+    caplog,
 ):
     """ГЛАВНЫЙ СЛУЧАЙ. Флаг включён, передача оплаты человеку снята — до
     этой правки агент поставил бы в YCLIENTS настоящую бронь без оплаты."""
-    monkeypatch.setattr("app.agent.tools.get_settings",
-                        lambda: Settings(auto_booking_enabled=True))
+    monkeypatch.setattr("app.agent.tools.get_settings", lambda: Settings(auto_booking_enabled=True))
     provider = _Provider()
-    ex = ToolExecutor(kb_without_handoff, "d1", booking_provider=provider,
-                      today_fn=lambda: date(2026, 8, 27))
-    await ex.run("calculate_price", {"zone_id": "bath_russian", "date": "2026-08-29",
-                                     "start_time": "14:00", "hours": 3, "guests": 6})
+    ex = ToolExecutor(
+        kb_without_handoff, "d1", booking_provider=provider, today_fn=lambda: date(2026, 8, 27)
+    )
+    await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-08-29",
+            "start_time": "14:00",
+            "hours": 3,
+            "guests": 6,
+        },
+    )
 
-    result = await ex.run("create_booking", {
-        "zone_id": "bath_russian", "date": "2026-08-29", "start_time": "14:00",
-        "client_name": "Анна", "client_phone": "+79990000000",
-    })
+    result = await ex.run(
+        "create_booking",
+        {
+            "zone_id": "bath_russian",
+            "date": "2026-08-29",
+            "start_time": "14:00",
+            "client_name": "Анна",
+            "client_phone": "+79990000000",
+        },
+    )
 
     assert result["booked"] is False
     assert provider.bookings == []

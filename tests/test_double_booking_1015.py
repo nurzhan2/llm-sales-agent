@@ -15,9 +15,26 @@ from app.booking.yclients import busy_windows, interval_is_free
 from app.kb.loader import load_catalog
 
 # Живой ответ book_times для гриль-домика на 24.10 (seance 3 ч, старты до 23:00).
-GRILL_2410 = ("9:00", "9:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30",
-              "13:00", "13:30", "14:00", "14:30", "15:00", "21:00", "21:30", "22:00",
-              "22:30", "23:00")
+GRILL_2410 = (
+    "9:00",
+    "9:30",
+    "10:00",
+    "10:30",
+    "11:00",
+    "11:30",
+    "12:00",
+    "12:30",
+    "13:00",
+    "13:30",
+    "14:00",
+    "14:30",
+    "15:00",
+    "21:00",
+    "21:30",
+    "22:00",
+    "22:30",
+    "23:00",
+)
 FREE_DAY = tuple(f"{h}:{m:02d}" for h in range(9, 24) for m in (0, 30) if (h, m) <= (23, 0))
 TODAY = date(2026, 10, 15)
 
@@ -35,7 +52,8 @@ class Grill:
         ok = interval_is_free(slots, start_time, hours, 10800)
         return Availability(
             AvailabilityStatus.FREE if ok else AvailabilityStatus.BUSY,
-            free_slots=slots, seance_seconds=10800,
+            free_slots=slots,
+            seance_seconds=10800,
         )
 
 
@@ -72,20 +90,32 @@ async def test_really_free_day_stays_free(kb):
 
 async def test_price_on_a_busy_slot_carries_a_stop_warning(kb):
     ex = ToolExecutor(kb, "d1", booking_provider=Grill(), today_fn=lambda: TODAY)
-    result = await ex.run("calculate_price", {
-        "zone_id": "grill_house", "date": "2026-10-24", "start_time": "12:00",
-        "hours": 10, "guests": 9,
-    })
+    result = await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "grill_house",
+            "date": "2026-10-24",
+            "start_time": "12:00",
+            "hours": 10,
+            "guests": 9,
+        },
+    )
     assert result.get("slot_busy") is True
     assert "Не подтверждай бронь" in result["instruction"]
 
 
 async def test_price_on_a_free_slot_has_no_warning(kb):
     ex = ToolExecutor(kb, "d1", booking_provider=Grill(), today_fn=lambda: TODAY)
-    result = await ex.run("calculate_price", {
-        "zone_id": "grill_house", "date": "2026-10-24", "start_time": "10:00",
-        "hours": 3, "guests": 9,
-    })
+    result = await ex.run(
+        "calculate_price",
+        {
+            "zone_id": "grill_house",
+            "date": "2026-10-24",
+            "start_time": "10:00",
+            "hours": 3,
+            "guests": 9,
+        },
+    )
     assert result["status"] == "ok" and "slot_busy" not in result
 
 
@@ -99,7 +129,7 @@ def test_record_start_counts_as_busy():
 
 
 def test_interval_ending_inside_a_record_is_busy():
-    assert not interval_is_free(NATALIA_1710, time(12, 30), 3, 10800)   # до 15:30
-    assert interval_is_free(NATALIA_1710, time(12, 0), 3, 10800)        # до 15:00
-    assert interval_is_free(NATALIA_1710, time(18, 0), 3, 10800)        # после
+    assert not interval_is_free(NATALIA_1710, time(12, 30), 3, 10800)  # до 15:30
+    assert interval_is_free(NATALIA_1710, time(12, 0), 3, 10800)  # до 15:00
+    assert interval_is_free(NATALIA_1710, time(18, 0), 3, 10800)  # после
     assert not interval_is_free(NATALIA_1710, time(15, 0), 3, 10800)

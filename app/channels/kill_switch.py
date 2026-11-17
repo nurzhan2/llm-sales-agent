@@ -30,8 +30,8 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger("parmangal.kill_switch")
 
@@ -41,8 +41,8 @@ KEY = "outbound:kill_switch"
 @dataclass
 class KillSwitchStatus:
     stopped: bool
-    by: Optional[int] = None
-    at: Optional[str] = None
+    by: int | None = None
+    at: str | None = None
     reason: str = ""
 
 
@@ -58,9 +58,7 @@ async def is_stopped(redis: Any) -> bool:
     try:
         raw = await redis.get(KEY)
     except Exception:
-        logger.exception(
-            "kill switch: не удалось прочитать Redis — отправка заблокирована"
-        )
+        logger.exception("kill switch: не удалось прочитать Redis — отправка заблокирована")
         return True
     return raw is not None
 
@@ -91,13 +89,9 @@ async def get_status(redis: Any) -> KillSwitchStatus:
 async def stop(redis: Any, by: int, reason: str = "") -> None:
     if redis is None:
         raise RuntimeError("Redis недоступен — рубильнику негде храниться")
-    payload = json.dumps(
-        {"by": by, "at": datetime.now(timezone.utc).isoformat(), "reason": reason}
-    )
+    payload = json.dumps({"by": by, "at": datetime.now(UTC).isoformat(), "reason": reason})
     await redis.set(KEY, payload)
-    logger.warning(
-        "kill switch: отправка ОСТАНОВЛЕНА", extra={"by": by, "reason": reason}
-    )
+    logger.warning("kill switch: отправка ОСТАНОВЛЕНА", extra={"by": by, "reason": reason})
 
 
 async def resume(redis: Any, by: int) -> None:

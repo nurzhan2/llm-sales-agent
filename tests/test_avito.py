@@ -14,16 +14,15 @@ import respx
 
 from app.channels import avito_endpoints as ep
 from app.channels import avito_payloads as pl
+from app.channels import inbound_dedup as dedup
 from app.channels.avito import (
     AvitoAuth,
     AvitoClient,
     AvitoTokenError,
     SpecNotVerifiedError,
     _is_retryable,
-    truncate_for_avito,
 )
 from app.config import Settings
-from app.channels import inbound_dedup as dedup
 
 # asyncio_mode=auto in pytest.ini handles the async tests; a module-level
 # marker would also (wrongly) tag the synchronous ones.
@@ -34,6 +33,7 @@ WEBHOOK_SECRET = "x" * 40
 # --------------------------------------------------------------------------
 # Fakes
 # --------------------------------------------------------------------------
+
 
 class FakeRedis:
     """Enough of redis-py's async surface for these tests."""
@@ -94,6 +94,7 @@ def send_url(user_id="777", chat_id="c1") -> str:
 # Спек и его особенности
 # --------------------------------------------------------------------------
 
+
 def test_spec_is_marked_verified():
     assert ep.SPEC_VERIFIED is True
 
@@ -127,6 +128,7 @@ async def test_client_refuses_to_call_when_spec_flag_is_off(settings, monkeypatc
 # Token lifecycle
 # --------------------------------------------------------------------------
 
+
 @respx.mock
 async def test_token_is_fetched_and_cached_in_redis(settings):
     redis = FakeRedis()
@@ -159,6 +161,7 @@ async def test_token_is_not_refetched_while_valid(settings):
 # такое пропускает, и наружу вылезал `KeyError: 'access_token'`: трассировка
 # без единого слова о причине, хотя Авито назвал её прямо в теле.
 # --------------------------------------------------------------------------
+
 
 @respx.mock
 async def test_a_rejected_token_request_raises_a_named_error_not_a_key_error(settings):
@@ -287,6 +290,7 @@ async def test_token_never_appears_in_logs(settings, caplog):
 # Retries
 # --------------------------------------------------------------------------
 
+
 def test_retry_predicate_covers_5xx_and_transport_only():
     request = httpx.Request("GET", "https://api.avito.ru/x")
 
@@ -351,6 +355,7 @@ async def test_does_not_retry_4xx(settings):
 # DRY_RUN
 # --------------------------------------------------------------------------
 
+
 @respx.mock
 async def test_dry_run_does_not_send_message():
     """The safety property this whole mode exists for."""
@@ -401,10 +406,11 @@ async def test_dry_run_off_actually_sends(settings):
 # приёма два (вебхук и поллер), и разводить их обязана одна общая точка.
 # --------------------------------------------------------------------------
 
+
 async def test_duplicate_message_id_is_dropped():
     redis = FakeRedis()
-    assert await dedup.claim("m-1", redis) is True    # первая доставка
-    assert await dedup.claim("m-1", redis) is False   # Авито повторило
+    assert await dedup.claim("m-1", redis) is True  # первая доставка
+    assert await dedup.claim("m-1", redis) is False  # Авито повторило
 
 
 async def test_distinct_message_ids_both_pass():
@@ -458,6 +464,7 @@ def test_chat_id_extraction_tolerates_envelope_shapes():
 # --------------------------------------------------------------------------
 # Тип сообщения и диагностика вебхука без текста
 # --------------------------------------------------------------------------
+
 
 def test_chat_type_extraction_tolerates_envelope_shapes():
     assert pl.extract_chat_type({"payload": {"value": {"chat_type": "u2i"}}}) == "u2i"
@@ -547,9 +554,12 @@ def test_describe_payload_preserves_deep_image_urls():
     """Реальная глубина фото-контента (content.image.sizes."WxH") не
     должна срезаться предохранителем от патологической вложенности."""
     payload = {
-        "payload": {"value": {"type": "image", "content": {
-            "image": {"sizes": {"140x105": "https://example.com/a.jpg"}}
-        }}}
+        "payload": {
+            "value": {
+                "type": "image",
+                "content": {"image": {"sizes": {"140x105": "https://example.com/a.jpg"}}},
+            }
+        }
     }
     description = pl.describe_payload_for_logging(payload)
     sizes = description["sanitized"]["payload"]["value"]["content"]["image"]["sizes"]
@@ -559,6 +569,7 @@ def test_describe_payload_preserves_deep_image_urls():
 # --------------------------------------------------------------------------
 # Settings hygiene
 # --------------------------------------------------------------------------
+
 
 def test_dry_run_defaults_to_true():
     """It must take a deliberate act to start writing to real clients."""
@@ -585,7 +596,11 @@ def test_allowed_users_accepts_comma_separated_env_value():
 def test_allowed_items_accepts_comma_separated_env_value():
     """Именно так значение приходит из Railway. Пробелы после запятой —
     норма для руками собранного списка из 17 идентификаторов."""
-    assert Settings(avito_allowed_items="111, 222 ,333").avito_allowed_items == ["111", "222", "333"]
+    assert Settings(avito_allowed_items="111, 222 ,333").avito_allowed_items == [
+        "111",
+        "222",
+        "333",
+    ]
 
 
 def test_allowed_items_empty_means_everything_is_allowed():
@@ -607,6 +622,7 @@ def test_allowed_items_are_strings_even_when_given_as_numbers():
 # --------------------------------------------------------------------------
 # Чёрный список: пустое значение = дефолты, а не «ничего не блокировать»
 # --------------------------------------------------------------------------
+
 
 def test_blocklist_empty_env_falls_back_to_defaults():
     """`.env.example` несёт строку `AVITO_BLOCKED_ITEMS=` — скопированная
@@ -645,13 +661,22 @@ def test_default_blocklist_holds_the_known_foreign_listings():
     from app.config import DEFAULT_BLOCKED_ITEMS
 
     assert set(DEFAULT_BLOCKED_ITEMS) == {
-        "8204183112", "8076244626", "8076019723", "7980739861", "8172444564",
+        "8204183112",
+        "8076244626",
+        "8076019723",
+        "7980739861",
+        "8172444564",
         "7948732527",
-        "7980333044", "8236197068", "7980615746", "8076853804", "7948469179",
+        "7980333044",
+        "8236197068",
+        "7980615746",
+        "8076853804",
+        "7948469179",
         # Разбор прода 2026-09-06: оба получали no_keyword_match, то есть
         # ALLOW, и агент отвечал по ним прайсом на бани. «Гостиница» —
         # 17 входящих от покупателей недвижимости.
-        "8461169411", "8236127647",
+        "8461169411",
+        "8236127647",
         # 2026-09-18: вакансия «Администратор базы отдыха с проживанием» —
         # шесть откликов соискателей получили ответ бота.
         "8302335893",

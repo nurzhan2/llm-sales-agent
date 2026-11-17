@@ -8,28 +8,27 @@ from __future__ import annotations
 
 from decimal import Decimal
 from functools import lru_cache
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-
 
 # Объявления заказчика, не относящиеся к комплексу. Отдельной константой, а
 # не литералом в Field, чтобы валидатор ниже мог вернуть ИМЕННО их на пустое
 # значение переменной, и чтобы список был виден в одном месте.
 DEFAULT_BLOCKED_ITEMS: tuple[str, ...] = (
-    "8204183112",   # вакансия менеджера
-    "8076244626",   # продажа глэмпинга
-    "8076019723",   # арендный бизнес
-    "7980739861",   # продажа банного комплекса
-    "8172444564",   # квартира-студия
+    "8204183112",  # вакансия менеджера
+    "8076244626",  # продажа глэмпинга
+    "8076019723",  # арендный бизнес
+    "7980739861",  # продажа банного комплекса
+    "8172444564",  # квартира-студия
     # Второе объявление о продаже ВСЕГО комплекса — найдено живым прогоном
     # scripts/sync_item_scope.py 2026-08-28 против прода: заголовок «Банный
     # комплекс "Чайка" инвестиционная возможность» матчит allow-слово
     # «банный», и чистая классификация по заголовку (app/channels/
     # item_scope.py:classify_title) ошибочно открыла бы его — тот же класс
     # ошибки, что и у 7980739861 выше, просто под другим id.
-    "7948732527",   # продажа банного комплекса «Чайка» (инвестиционная возможность)
+    "7948732527",  # продажа банного комплекса «Чайка» (инвестиционная возможность)
     # Пять объявлений ниже — жёсткий deny по id БЕЗ новых ключевых слов
     # (решение заказчика 2026-08-29): расширять deny-список словами вроде
     # "комната"/"продажа помещения"/"доходный" рискует ложно денить будущие
@@ -37,26 +36,26 @@ DEFAULT_BLOCKED_ITEMS: tuple[str, ...] = (
     # эти пять — конкретные посторонние объявления, найденные живым прогоном
     # scripts/sync_item_scope.py 2026-08-28 (no_keyword_match, ошибочно
     # получали allow).
-    "7980333044",   # продажа 2-этажных корпусов
-    "8236197068",   # продажа доходной недвижимости
-    "7980615746",   # продажа помещения под ресторан/клуб
-    "8076853804",   # комната в квартире
-    "7948469179",   # имущественный комплекс бывшего детского лагеря
+    "7980333044",  # продажа 2-этажных корпусов
+    "8236197068",  # продажа доходной недвижимости
+    "7980615746",  # продажа помещения под ресторан/клуб
+    "8076853804",  # комната в квартире
+    "7948469179",  # имущественный комплекс бывшего детского лагеря
     # Ещё два, найденных разбором прода 2026-09-06: оба получали
     # `no_keyword_match`, то есть ALLOW, и агент отвечал по ним прайсом на
     # бани. «Гостиница» — самое дорогое из пропущенных: 17 входящих от
     # покупателей недвижимости. Ключевых слов снова не добавляем по той же
     # причине, что и выше: «гостиница» и «мастер» рискуют задеть будущие
     # объявления комплекса.
-    "8461169411",   # продажа: «Гостиница, 17260 м²»
-    "8236127647",   # вакансия: «Мастер участка»
+    "8461169411",  # продажа: «Гостиница, 17260 м²»
+    "8236127647",  # вакансия: «Мастер участка»
     # Найдено 2026-09-18 разбором системных сообщений: шесть откликов
     # «Кандидат откликнулся на вакансию» с 11.09 по 18.09, и на каждый агент
     # отвечал соискателю от лица администратора бани. В item_scope —
     # allow/no_keyword_match: «администратор» не в deny-словах и добавлять
     # его туда нельзя по той же причине, что выше, — слово легко встретится в
     # объявлении самого комплекса («администратор на связи круглосуточно»).
-    "8302335893",   # вакансия: «Администратор базы отдыха с проживанием»
+    "8302335893",  # вакансия: «Администратор базы отдыха с проживанием»
 )
 
 # Явное «фильтра нет»: только этим словом, не пустой строкой (см. коммент
@@ -244,7 +243,7 @@ class Settings(BaseSettings):
     # провайдер. Резерв ПО МОДЕЛИ (например, deepseek-v4-flash вместо
     # deepseek-v4-pro) этой настройкой не делается: модель выбирается в
     # factory.resolve_models на уровне хода, а не провайдера.
-    llm_fallback_provider: Optional[Literal["deepseek"]] = None
+    llm_fallback_provider: Literal["deepseek"] | None = None
     llm_fallback_after_errors: int = 3
     # Пусто — имя модели берётся по умолчанию для llm_provider
     # (app.agent.providers.factory.default_models_for).
@@ -376,9 +375,7 @@ class Settings(BaseSettings):
     # в операторском боте (app/ops/handlers.py).
     max_agent_replies_per_chat: int = Field(
         default=25,
-        validation_alias=AliasChoices(
-            "AGENT_MAX_REPLIES_PER_CHAT", "MAX_AGENT_REPLIES_PER_CHAT"
-        ),
+        validation_alias=AliasChoices("AGENT_MAX_REPLIES_PER_CHAT", "MAX_AGENT_REPLIES_PER_CHAT"),
     )
     debounce_window_seconds: float = 10.0
     # Дневной потолок расхода на модели, рубли. Считается и срабатывает в
@@ -551,7 +548,7 @@ class Settings(BaseSettings):
         if len(secret) < self.avito_webhook_secret_min_length:
             raise RuntimeError(
                 f"AVITO_WEBHOOK_SECRET короче {self.avito_webhook_secret_min_length} символов. "
-                "Сгенерируйте: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                'Сгенерируйте: python -c "import secrets; print(secrets.token_urlsafe(32))"'
             )
         return secret
 
@@ -561,8 +558,7 @@ class Settings(BaseSettings):
         client_secret = self.avito_client_secret.get_secret_value()
         if not client_id or not client_secret:
             raise RuntimeError(
-                "AVITO_CLIENT_ID / AVITO_CLIENT_SECRET are not set — "
-                "see .env.example"
+                "AVITO_CLIENT_ID / AVITO_CLIENT_SECRET are not set — see .env.example"
             )
         return client_id, client_secret
 

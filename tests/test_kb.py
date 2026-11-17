@@ -6,27 +6,26 @@ Run with: python -m pytest tests/test_kb.py -v
 from __future__ import annotations
 
 import copy
-from pathlib import Path
 
 import pytest
 import yaml
 
 from app.kb.loader import (
     KB_DIR,
+    ConcessionsFile,
     DisputedBlock,
     DisputedValue,
-    ConcessionsFile,
+    _read_yaml,
+    collect_question_ids,
     load_catalog,
     scan_for_credentials,
     validate_no_orphan_disputed,
-    collect_question_ids,
-    _read_yaml,
 )
-
 
 # --------------------------------------------------------------------------
 # Fixtures
 # --------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def kb():
@@ -55,6 +54,7 @@ def raw_text_blobs():
 # 1. All four YAML files load and validate
 # --------------------------------------------------------------------------
 
+
 def test_all_four_files_exist():
     for name in ("catalog.yaml", "promos.yaml", "concessions.yaml", "payment.yaml"):
         assert (KB_DIR / name).exists(), f"{name} is missing from app/kb/"
@@ -80,7 +80,9 @@ def test_invalid_yaml_refuses_to_start(tmp_path):
         "value": 10,
         "disputed": {"question_id": "1.6", "variants": [10, 12], "sources": []},
     }
-    (bad_dir / "catalog.yaml").write_text(yaml.safe_dump(catalog, allow_unicode=True), encoding="utf-8")
+    (bad_dir / "catalog.yaml").write_text(
+        yaml.safe_dump(catalog, allow_unicode=True), encoding="utf-8"
+    )
 
     with pytest.raises(Exception):
         load_catalog(kb_dir=bad_dir)
@@ -89,6 +91,7 @@ def test_invalid_yaml_refuses_to_start(tmp_path):
 # --------------------------------------------------------------------------
 # 2. DisputedValue: value and disputed are mutually exclusive
 # --------------------------------------------------------------------------
+
 
 def test_disputed_value_rejects_both_set():
     with pytest.raises(Exception):
@@ -123,20 +126,27 @@ def test_no_field_in_kb_has_both_value_and_disputed(raw_docs):
 
 def test_orphan_disputed_detector_actually_catches_violations():
     """Prove the detector isn't a no-op: it must flag a synthetic bad node."""
-    bad = {"zone": {"pricing": {"weekend_per_hour": {"value": 3500, "disputed": {"question_id": "x"}}}}}
+    bad = {
+        "zone": {"pricing": {"weekend_per_hour": {"value": 3500, "disputed": {"question_id": "x"}}}}
+    }
     errors = validate_no_orphan_disputed(bad)
     assert any("both" in e for e in errors)
 
-    neither = {"zone": {"pricing": {"weekend_per_hour": {}}}}
     # `{}` has no "value" key so it isn't picked up as a leaf at all — use an
     # explicit None value to represent "neither set" the way real disputed
     # blocks are written when nothing has been resolved yet.
-    errors2 = validate_no_orphan_disputed({"zone": {"pricing": {"weekend_per_hour": {"value": None}}}})
+    errors2 = validate_no_orphan_disputed(
+        {"zone": {"pricing": {"weekend_per_hour": {"value": None}}}}
+    )
     assert any("neither" in e for e in errors2)
 
 
 def test_disputed_block_without_question_id_is_rejected():
-    bad = {"zone": {"pricing": {"weekend_per_hour": {"value": None, "disputed": {"note": "no id here"}}}}}
+    bad = {
+        "zone": {
+            "pricing": {"weekend_per_hour": {"value": None, "disputed": {"note": "no id here"}}}
+        }
+    }
     errors = validate_no_orphan_disputed(bad)
     assert any("question_id" in e for e in errors)
 
@@ -145,13 +155,16 @@ def test_disputed_block_without_question_id_is_rejected():
 # 3. Every disputed field references a real open_question id
 # --------------------------------------------------------------------------
 
+
 def test_every_referenced_question_id_exists_in_open_questions(raw_docs):
     open_ids = {q["id"] for q in raw_docs["catalog"]["open_questions"]}
     used_ids = set()
     for doc in raw_docs.values():
         used_ids |= collect_question_ids(doc)
     missing = used_ids - open_ids
-    assert not missing, f"question_id(s) referenced but not declared in open_questions: {sorted(missing)}"
+    assert not missing, (
+        f"question_id(s) referenced but not declared in open_questions: {sorted(missing)}"
+    )
 
 
 def test_open_questions_have_unique_ids(raw_docs):
@@ -165,7 +178,9 @@ def test_dangling_question_id_is_detected():
     bad_catalog = {
         "meta": {"version": 1, "updated_at": "2026-08-20"},
         "constants": {
-            "weekday_days": ["mon"], "weekend_days": ["fri"], "holidays": [],
+            "weekday_days": ["mon"],
+            "weekend_days": ["fri"],
+            "holidays": [],
             "working_window": {"from": "10:00", "to": "22:00", "disputed": False},
         },
         "venues": [],
@@ -175,7 +190,10 @@ def test_dangling_question_id_is_detected():
         "open_questions": [{"id": "1.1", "text": "x", "blocking": False, "status": "open"}],
     }
     doc_with_dangling_ref = {
-        "capacity": {"value": None, "disputed": {"question_id": "99.9", "variants": [], "sources": []}}
+        "capacity": {
+            "value": None,
+            "disputed": {"question_id": "99.9", "variants": [], "sources": []},
+        }
     }
     used = collect_question_ids(doc_with_dangling_ref)
     declared = {q["id"] for q in bad_catalog["open_questions"]}
@@ -185,6 +203,7 @@ def test_dangling_question_id_is_detected():
 # --------------------------------------------------------------------------
 # 4. No phone numbers or bank names anywhere in the KB
 # --------------------------------------------------------------------------
+
 
 def test_scan_for_credentials_detects_phone_numbers():
     assert scan_for_credentials("позвоните на 89000000000 пожалуйста")
@@ -200,7 +219,9 @@ def test_scan_for_credentials_ignores_clean_text():
     assert not scan_for_credentials("Баня «Русский стиль», будни 2500 рублей в час")
 
 
-@pytest.mark.parametrize("filename", ["catalog.yaml", "promos.yaml", "concessions.yaml", "payment.yaml"])
+@pytest.mark.parametrize(
+    "filename", ["catalog.yaml", "promos.yaml", "concessions.yaml", "payment.yaml"]
+)
 def test_kb_files_have_no_leaked_credentials(raw_text_blobs, filename):
     issues = scan_for_credentials(raw_text_blobs[filename])
     assert not issues, f"{filename} appears to contain payment credentials: {issues}"
@@ -214,6 +235,7 @@ def test_payment_yaml_hardcodes_no_credentials_policy(kb):
 # --------------------------------------------------------------------------
 # 5. concessions.yaml ladder shape
 # --------------------------------------------------------------------------
+
 
 def test_ladder_sorted_no_gaps(kb):
     tiers = [t.tier for t in kb.concessions.policy.ladder]
@@ -275,6 +297,7 @@ def test_confirmed_concession_floors(kb):
 # --------------------------------------------------------------------------
 # 6. Readiness audit sanity checks
 # --------------------------------------------------------------------------
+
 
 def test_readiness_report_covers_every_zone(kb):
     from app.kb.loader import audit_readiness
@@ -406,8 +429,7 @@ def test_the_address_sounds_the_same_everywhere():
 
     assert {v.address for v in kb.catalog.venues} == {address}
 
-    answers = [e.answer for e in kb.catalog.knowledge
-               if e.answer and "Тупиково" in e.answer]
+    answers = [e.answer for e in kb.catalog.knowledge if e.answer and "Тупиково" in e.answer]
     assert answers, "ответа про адрес в базе знаний нет вовсе"
     for answer in answers:
         assert answer.startswith(address), answer
@@ -432,8 +454,7 @@ def test_the_website_is_in_the_knowledge_base():
     from app.kb.loader import load_catalog
 
     kb = load_catalog()
-    answers = [e.answer for e in kb.catalog.knowledge
-               if "сайт" in e.question_topic.lower()]
+    answers = [e.answer for e in kb.catalog.knowledge if "сайт" in e.question_topic.lower()]
     assert answers, "записи про сайт в базе знаний нет"
     assert any("чайка.москва" in a for a in answers), answers
 
@@ -453,4 +474,4 @@ def test_every_escalation_topic_has_words_to_match_on():
     for topic in topics:
         pattern = topic.get("match")
         assert pattern, f"у темы {topic.get('id')} нет match"
-        re.compile(pattern)   # кривой шаблон должен падать здесь, а не в проде
+        re.compile(pattern)  # кривой шаблон должен падать здесь, а не в проде

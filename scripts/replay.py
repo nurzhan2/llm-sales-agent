@@ -26,7 +26,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from app.agent.loop import AgentLoop
 from app.agent.providers.deepseek_provider import BASE_URL as DEEPSEEK_BASE_URL
@@ -48,6 +48,7 @@ BASELINE = ROOT / "tests" / "baseline.json"
 # --------------------------------------------------------------------------
 # Офлайн-заглушка модели
 # --------------------------------------------------------------------------
+
 
 class _Block:
     def __init__(self, text: str):
@@ -139,7 +140,8 @@ def build_judge_client() -> tuple[Any, bool]:
 # Прогон
 # --------------------------------------------------------------------------
 
-def load_dialogs(limit: Optional[int] = None, path: Optional[Path] = None) -> list[dict]:
+
+def load_dialogs(limit: int | None = None, path: Path | None = None) -> list[dict]:
     """Диалоги для прогона. `path` — чтобы прогнать не корпус, а конкретный
     набор: разбор инцидента заканчивается вопросом «а теперь проходит?», и
     отвечать на него удобнее тем же харнессом, что считает эталон."""
@@ -148,7 +150,7 @@ def load_dialogs(limit: Optional[int] = None, path: Optional[Path] = None) -> li
 
 
 def _next_manager_reply(turns: list[dict], index: int) -> str:
-    for turn in turns[index + 1:]:
+    for turn in turns[index + 1 :]:
         if turn.get("role") == "manager":
             return turn.get("text", "")
         if turn.get("role") == "client":
@@ -157,15 +159,17 @@ def _next_manager_reply(turns: list[dict], index: int) -> str:
 
 
 async def replay(
-    limit: Optional[int] = None,
+    limit: int | None = None,
     judge_enabled: bool = True,
     provider_name: str = "anthropic",
-    dialogs_path: Optional[Path] = None,
+    dialogs_path: Path | None = None,
 ) -> RunResult:
     kb = load_catalog()
     agent_client, online = build_agent_provider(provider_name)
     dialog_model, classifier_model = default_models_for(provider_name)
-    agent = AgentLoop(agent_client, kb, dialog_model=dialog_model, classifier_model=classifier_model)
+    agent = AgentLoop(
+        agent_client, kb, dialog_model=dialog_model, classifier_model=classifier_model
+    )
 
     judge_client, judge_online = build_judge_client()
     judge = Judge(judge_client) if (judge_online and judge_enabled) else None
@@ -256,13 +260,16 @@ async def main() -> int:
     parser.add_argument("--baseline", action="store_true", help="записать результат как эталон")
     parser.add_argument("--limit", type=int, help="прогнать только N диалогов")
     parser.add_argument(
-        "--dialogs", type=Path,
+        "--dialogs",
+        type=Path,
         help="файл с диалогами вместо docs/analysis/dialogs.json — например, "
-             "воспроизведение инцидента (tests/incidents/*.json)",
+        "воспроизведение инцидента (tests/incidents/*.json)",
     )
     parser.add_argument("--no-judge", action="store_true", help="без оценок судьи")
     parser.add_argument(
-        "--provider", choices=["anthropic", "deepseek"], default="anthropic",
+        "--provider",
+        choices=["anthropic", "deepseek"],
+        default="anthropic",
         help="какой провайдер обслуживает агента под тестом (промт №12)",
     )
     args = parser.parse_args()
@@ -276,8 +283,12 @@ async def main() -> int:
         )
         return 2
 
-    result = await replay(limit=args.limit, judge_enabled=not args.no_judge,
-                          provider_name=args.provider, dialogs_path=args.dialogs)
+    result = await replay(
+        limit=args.limit,
+        judge_enabled=not args.no_judge,
+        provider_name=args.provider,
+        dialogs_path=args.dialogs,
+    )
     write_report(result, REPORT_HTML, REPORT_JSON)
     data = result.as_json()
 

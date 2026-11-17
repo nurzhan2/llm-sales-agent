@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from decimal import Decimal
-from typing import Any, Optional, Sequence
+from typing import Any
 
 
 class LLMProvider(ABC):
@@ -29,9 +30,9 @@ class LLMProvider(ABC):
         model: str,
         messages: list[dict],
         system: Any = None,
-        tools: Optional[Sequence[dict]] = None,
+        tools: Sequence[dict] | None = None,
         max_tokens: int,
-        tool_choice: Optional[dict] = None,
+        tool_choice: dict | None = None,
     ) -> Any:
         """Один вызов модели. Возвращает Anthropic-форму ответа."""
 
