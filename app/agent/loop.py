@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date as date_cls
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Sequence
 
 from app.agent.listing_context import (
