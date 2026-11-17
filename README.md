@@ -1,488 +1,152 @@
-# ПарМангал — ИИ-агент для Авито
+# LLM Sales Agent for Avito
 
-Ассистент, отвечающий клиентам загородного комплекса «ПарМангал» (Троицк,
-д. Тупиково, база отдыха «Чайка») вместо живых менеджеров.
+An LLM agent that answers buyers on Avito for a country leisure complex (private saunas, dome gazebos, a grill house, an event tent): it quotes exact prices, checks live availability in YCLIENTS and hands the deal to a manager at the right moment.
+Runs in production for the client, «ПарМангал» (Troitsk, Moscow region), on FastAPI, PostgreSQL, Redis and DeepSeek.
 
-## Структура
+[![CI](https://github.com/nurzhan2/llm-sales-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/nurzhan2/llm-sales-agent/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.12-blue)
 
-```
-docs/source/      исходники: прайс заказчика, 27 переписок (обезличены),
-                  ответы заказчика
-docs/analysis/    аудит: разметка диалогов, противоречия, FAQ, тон, провалы
-docs/LAUNCH_REPORT.md   отчёт к запуску для заказчика, без техтерминов
-docs/GO_LIVE.md   чек-лист запуска и критерии выключения модерации
-docs/PROVIDER_COMPARISON.md   Anthropic vs DeepSeek на 27 диалогах
-docs/RAILWAY_SETUP.md   пошаговый деплой на Railway
-docs/RUNBOOK.md   эксплуатация: рубильник, диагностика, откат
-app/kb/           машиночитаемая база знаний (YAML) + загрузчик с валидацией
-app/kb/overrides.py    путь-в-документе -> значение, наложение на сырой YAML
-app/kb/editable.py     белый список правимых полей + доменная валидация
-app/kb/editor.py       правка: валидация, сохранение, пересчёт примера цены
-app/kb/override_store.py  БД-слой правок (переживает деплой на Railway)
-app/ops/menu.py         инлайн-клавиатуры и тексты бота (без aiogram)
-app/ops/menu_service.py логика меню: права, ввод значения, подтверждение
-app/pricing/      движок расчёта цены, движок уступок, храповик диалога
-app/channels/     адаптер Авито: спек, транспорт, вебхуки, объявления
-app/channels/outbound_gate.py  единственная дверь наружу: белый список
-                  объявлений проверяется здесь, а не в каждом месте отправки
-app/agent/        ядро агента: инструменты, системный промт, цикл, debounce
-app/agent/providers/  Anthropic/DeepSeek, аварийное переключение (промт №12)
-app/agent/touch_tracking.py  логика отложенных касаний (регламент скидок)
-app/media/        импорт фотографий по зонам
-app/ops/          операторский контур: уведомления, перехват, модерация
-app/ops/touch_scheduler.py  фоновый воркер отложенных касаний
-app/pipeline.py   конвейер входящих: вебхук → дедуп → debounce → агент → ответ
-app/dialog_store.py  доступ к данным диалога для конвейера (+ In-Memory дубль)
-app/booking/      абстракция бронирования, YCLIENTS, заглушка
-app/quality/      харнесс качества: жёсткие проверки, судья, отчёт
-app/admin/        админка на FastAPI + HTMX (queries.py — чтение из БД)
-app/db/           модели SQLAlchemy, включая персистентное состояние диалога
-scripts/          replay.py (--provider), compare_providers.py,
-                  register_webhook.py, rotate_avito_keys.py,
-                  import_photos.py, export_listings.py (--seed-map кладёт
-                  заголовки объявлений в item_zone_map для /admin/dialogs),
-                  unpack_google_drive_photos.py, anonymize_dialogs.py,
-                  sync_yclients_services.py (связка zone_id <-> staff_id — у
-                  заказчика сотрудник YCLIENTS физически и есть зона),
-                  inspect_yclients.py (только чтение — что реально есть в YCLIENTS)
-railway.toml      сборка на Railway (см. docs/RAILWAY_SETUP.md)
-entrypoint.sh     точка входа контейнера: alembic upgrade head, потом uvicorn
-tests/            753 теста
-questions_for_client.md   вопросы заказчику (секции 1-15)
+Shown with the client's permission. Customer conversations, personal data and photos are removed from the code and from the git history.
+
+## Problem
+
+- Buyers write on Avito at any hour and expect an answer in minutes; managers answered every chat by hand.
+- A wrong price or a "yes, it's free" for a slot already booked in YCLIENTS costs real money and a double booking.
+- A plain chatbot invents prices, promises bookings it cannot make and talks over the human manager when one joins the chat.
+
+## Features
+
+- **Prices never come from the model.** A deterministic pricing engine reads a YAML catalog; the LLM must call `calculate_price`, and output guards block any amount that did not come from a tool result.
+- **Live availability.** `check_availability` and `find_next_available` read YCLIENTS `book_times` and check the whole interval, not just the start time.
+- **Twelve tools** behind one tool-calling loop: pricing, availability, discounts, photos, leads, booking hand-off, knowledge-base answers, escalation.
+- **Two inbound paths, one pipeline.** Avito webhook and a polling worker feed the same pipeline; duplicates are dropped by a Redis claim and a unique index on `avito_message_id`.
+- **One outbound door.** Every message (agent reply, follow-up, operator approval, timeout fallback) passes `OutboundGate`: listing allowlist, kill switch, daily send cap, human takeover, manual hold.
+- **Human in the loop.** A Telegram bot for operators: discount approvals with a timeout fallback, take over / return a chat, price edits with audit and revert, a daily self-check report, alerts.
+- **Discount policy as code.** Tiered concessions with floors, a per-day limit and a ratchet: a price already quoted in the dialog can only go down.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  A[Avito webhook] --> P
+  B[Avito poller] --> P
+  P[Pipeline<br/>dedup, debounce, takeover check] --> L[Agent loop]
+  L <--> M[DeepSeek<br/>Anthropic-compatible API]
+  L --> T[Tools]
+  T --> E[Pricing engine<br/>YAML catalog + DB overrides]
+  T --> Y[YCLIENTS API]
+  L --> G[Output guards]
+  G --> O[OutboundGate] --> AV[Avito Messenger API]
+  P & L & O --- DB[(PostgreSQL)]
+  P & O --- R[(Redis)]
+  TG[Telegram ops bot] --- P
+  TG --- E
 ```
 
-## Запуск
+- **Pipeline** (`app/pipeline.py`): accepts a message, drops duplicates and echoes of our own messages, merges bursts of messages within a 10-second window, checks whether a human manager owns the chat.
+- **Agent loop** (`app/agent/loop.py`): builds the prompt (catalog, listing context, current date), runs the tool-calling loop, then applies output guards before anything reaches the client.
+- **Pricing engine** (`app/pricing/`): pure functions over the knowledge base; returns `ok`, `needs_input`, `invalid` or `blocked` (the last one means "a manager decides").
+- **OutboundGate** (`app/channels/outbound_gate.py`): the only object in the process that can send to Avito.
+- **Storage**: PostgreSQL holds chats, messages, dialog state, leads, bookings, price overrides and the operator audit log (Alembic migrations); Redis holds dedup claims, the OAuth token, the kill switch, the daily send counter and short holds on quoted slots.
 
-```bash
-python -m pytest tests/ -q
-```
+## Tech stack
 
-Отчёт о готовности зон и список нерешённых блокирующих вопросов:
-
-```bash
-python -m app.kb.loader
-```
-
----
-
-## Главное правило: любая цена проходит через `apply_dialog_floor`
-
-**Любая котировка, которая уходит в сообщение клиенту, обязана сначала пройти
-через `app.pricing.quote_gate.apply_dialog_floor`.** Без исключений — ни при
-«просто перепроверю свободные даты», ни при расчёте другой зоны в том же
-диалоге.
-
-Причина: движок расчёта намеренно не помнит диалог. Он отвечает на вопрос
-«сколько стоит эта бронь» по базе знаний и ничего не знает о том, что уже
-было обещано клиенту. Это правильно для расчёта и неправильно для котировки.
-
-Конкретный сценарий утечки:
-
-1. Агент называет базовую цену — 10 500 ₽ за 3 часа бани в выходной.
-2. Клиент возражает по цене, срабатывает ступень уступки — 7 500 ₽.
-3. Через два сообщения клиент уточняет детали, оркестратор вызывает расчёт
-   заново. Движок честно возвращает базовые 10 500 ₽.
-4. Агент называет цену **выше** той, что уже пообещал.
-
-Храповик поэтому живёт на границе, через которую проходят все цены, а не
-внутри одной ветки одной ступени:
-
-```python
-from app.pricing.engine import quote, PriceRequest
-from app.pricing.quote_gate import apply_dialog_floor
-
-raw = quote(PriceRequest(...), kb)
-final = apply_dialog_floor(raw, dialog_state)  # ← обязательный шаг
-send_to_client(final.human_readable)
-```
-
-Движок уступок дополнительно проверяет храповик в момент выдачи уступки
-(правило R9). Эта проверка защищает момент выдачи, `apply_dialog_floor`
-защищает все последующие котировки. Нужны обе.
-
----
-
-## Четыре статуса котировки
-
-Они не взаимозаменяемы — агент ведёт себя по-разному в каждом случае:
-
-| статус | что произошло | что делает агент |
+| Layer | Technology | Why |
 |---|---|---|
-| `ok` | посчитано | называет цену |
-| `blocked` | запрос корректен, но в базе знаний дыра | «уточню у менеджера», эскалация |
-| `invalid` | запрос невозможен (40 гостей в купол на 10) | объясняет клиенту и предлагает альтернативу |
-| `needs_input` | клиент ещё не сказал чего-то нужного | задаёт вопрос клиенту |
+| API | FastAPI, Uvicorn | async I/O: webhooks, Avito, YCLIENTS and LLM calls in one event loop |
+| Database | PostgreSQL 16, SQLAlchemy 2 (async), Alembic | JSONB for LLM metadata, ARRAY for photo ids, versioned schema |
+| Cache / locks | Redis | dedup claims, kill switch and counters shared by webhook and poller |
+| LLM | DeepSeek via its Anthropic-compatible endpoint, Anthropic SDK | low cost per dialogue; the same code replays dialogues on Claude models for comparison |
+| Operator UI | aiogram 3 (Telegram), server-rendered admin pages | operators already live in Telegram |
+| Booking | YCLIENTS REST API | the client's booking system of record |
+| Observability | structured logs, Prometheus `/metrics`, daily self-check | guard-rail counters and silent-chat detection |
+| Deploy | Docker, Railway | migrations run in the container entrypoint before Uvicorn |
 
-При `needs_input` и `invalid` котировка несёт `rate_hint` — тариф зоны на эту
-дату (ставка за час, минимум, пакет «весь день», если он действует в этот
-день недели). Агент называет его ДО уточняющего вопроса: клиент, спросивший
-«сколько стоит», слышит цифру, даже если итог ещё не посчитать. При `blocked`
-подсказки нет и быть не может — там любая цифра запрещена.
+## Key decisions & trade-offs
 
-`blocking_question_ids` заполняется **только** при `blocked`. Для вопросов,
-которые влияют на решение, но не мешают расчёту, есть отдельное поле
-`advisory_question_ids`.
+- **The model never produces a price.** Alternative: put the price list in the prompt. In replay runs the model miscomputed totals (for example, pricing two hours right after stating a three-hour minimum), so prices come from `calculate_price` and the last guard compares every amount in the reply with the tool results; a mismatch replaces the reply with a safe question or escalates. Cost: an extra tool round-trip per price question, and some replies get rewritten (11 of 113 LLM replies in a 10-day production window).
+- **One outbound door instead of checks at each call site.** Four code paths send messages; when checks lived at the call sites, a delayed follow-up once reached a client the agent was not allowed to write to. `OutboundGate` wraps the Avito client and every send method. Cost: a Redis and a DB read per send, and when Redis is down the kill switch and the daily cap fail closed (no sends) instead of open.
+- **Read-only YCLIENTS plus soft holds.** The integration token cannot write bookings: a manager enters the booking after the prepayment, hours after the bot quoted the slot, and until then YCLIENTS shows it as free. That gap produced double bookings, so a quoted slot is held in Redis for that chat (short after a quote, longer after the hand-off) and counts as busy for every other chat. Cost: a hold can block a slot for a client who never pays, until it expires.
+- **Detecting the human manager from message echoes.** Avito reports the bot's and the manager's messages with the same author id. The gate records each text before sending it, and an echo that matches is ours; anything else is the manager and pauses the bot for that chat. If the client then waits 30 minutes with no reply, the chat returns to the bot and the operator gets an alert. Cost: a text-matching heuristic; photo echoes needed a separate marker.
+- **Unknown business rules block instead of guessing.** Catalog fields the client has not confirmed are stored as `value: null` with a question id; the engine returns `blocked` and the bot hands the question to a manager. Operators change prices from Telegram; edits are stored as DB overrides with author, comment and one-step revert. Cost: more handoffs until the catalog is complete.
+- **A cheap model, kept honest by code.** DeepSeek runs through its Anthropic-compatible endpoint, so the agent uses the Anthropic SDK and tool format, and Claude models can replay the same dialogues as a baseline and judge. DeepSeek has no strict tool schemas on this endpoint, so every tool validates its own arguments and returns errors to the model instead of crashing the turn. The provider layer supports a fallback after three consecutive errors, but the runtime Anthropic fallback was removed: its production key was a placeholder, and a fallback that only looks configured is worse than none. A daily spend cap pauses the agent.
 
-## Один вопрос в сообщении — кодом
+## LLM quality, safety and cost
 
-Жалоба заказчика после двух недель в проде: бот допрашивает клиента по кругу.
-Три слоя, от мягкого к жёсткому:
+- **Output guards** (`app/agent/loop.py`) run after the model and before sending: a price without a tool call, an amount not returned by a tool, a claim about free slots without an availability check, a date that contradicts "today", a booking promised in words, more than one question per message, the bot describing its own instructions. Each firing is logged with the withheld text and counted in Prometheus.
+- **Offline replay** (`scripts/replay.py`, `app/quality/`): replays labelled real dialogues through the agent and scores each turn with rule-based asserts and an LLM judge. The labelled dialogues are client data and are not part of this repository.
+- **Daily self-check** (`app/ops/selfcheck.py`): listings without a zone, YCLIENTS resources that disappeared, stale price overrides, broken photos, chats where nobody answered the client, and guard-rail counts.
+- **Provider failure:** the turn fails closed: the error is logged and nothing half-built is sent to the client. The daily self-check reports chats left without an answer, so a provider outage shows up as a list of chats to answer by hand.
 
-- `app/agent/slots.py` разбирает ВСЮ переписку (дата, гости, длительность,
-  время, зона) и сообщает модели, что уже известно и что она уже спрашивала;
-- лестница рубежа занятости спрашивает ровно недостающий параметр, а если
-  клиент назвал всё — сразу передаёт человеку, не задавая лишних вопросов;
-- `app/agent/one_question.py` — последний рубеж: два и больше вопросов в
-  ответе режутся по началу второго, вместе со всем, что за ним (иначе
-  пояснение к вырезанному вопросу осталось бы висеть). Не эскалация — форма
-  ответа чинится молча, исходник остаётся в `llm_meta.untrimmed_text`.
-
-Замер — `python -m scripts.probe_questions` (живая модель, 5 повторов на
-случай, отчёт в `docs/quality/questions_probe.md`). На живом трафике —
-метрика `parmangal_guard_rails_total{rule=...}`.
-
-
-## Кардинальное правило базы знаний
-
-Если поле помечено в YAML как `disputed` (`value: null`), движок возвращает
-`blocked` и список недостающих `question_id`. Он **не** подставляет значение
-из прайса, **не** берёт среднее, **не** выбирает «более официальный»
-вариант. Придуманная цена в базе превращается в придуманную цену в переписке
-с живым клиентом.
-
-## Что агент не делает никогда
-
-- **Не называет реквизиты предоплаты** — ни из базы знаний, ни из истории
-  диалогов. В переписках нашлись 4 разных получателя на 5 транзакций; этап
-  оплаты всегда передаётся живому оператору (`app/kb/payment.yaml`).
-- **Не показывает производную ставку за час**, когда применена акция.
-  6 часов за 7 500 ₽ не превращается в «1 250 ₽ в час» — клиент запомнит эту
-  цифру и потребует её в следующий раз.
-- **Не молчит в ответ на прямую просьбу о скидке.** Если клиент говорит «у
-  меня день рождения», а действие акции на эту зону не подтверждено, агент
-  эскалирует, а не называет полную цену как ни в чём не бывало.
-
----
-
-## Защита вебхука Авито: секрет в пути, а не подпись
-
-Авито присылает заголовок `x-avito-messenger-signature` (64 hex-символа,
-похоже на sha256), но **алгоритм подписи не опубликован** — ни в OpenAPI-спеке,
-ни в документации.
-
-Поэтому вебхук защищён иначе:
-
-```
-AVITO_WEBHOOK_SECRET=<32+ случайных символа>
-маршрут:  POST /webhook/avito/{AVITO_WEBHOOK_SECRET}
-сравнение: secrets.compare_digest (не ==, чтобы не было тайминговой утечки)
-любой другой путь: 404
-```
-
-**Не «чините» это, добавив угаданный HMAC.** Правдоподобно угаданная схема
-подписи опаснее отсутствующей: неверный путь падает громко и сразу, а неверная
-проверка подписи **молча принимает подделки**. Если Авито опубликует алгоритм —
-добавьте проверку подписи вторым слоем, не убирая секретный путь.
-
-Сгенерировать секрет:
+## Quick start
 
 ```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+cp .env.example .env          # DRY_RUN=true by default: replies go to Telegram for approval
+docker compose up -d --build  # app on :8000, PostgreSQL, Redis; migrations run on start
+curl localhost:8000/health
 ```
 
-Зарегистрировать вебхук (секрет подставляется сам, в историю оболочки не попадает):
-
-```bash
-python -m scripts.register_webhook https://example.ru
-```
-
-### Секреты в логах
-
-`POST /token` у Авито принимает параметры в **query string**, а httpx логирует
-полный URL на уровне INFO — то есть `client_secret` уезжает в обычный лог
-приложения. Это поймал тест `test_token_never_appears_in_logs`. Фильтр в
-`app/logging_setup.py` вычищает секреты из записей лога; не удаляйте его —
-без него утечка возвращается молча.
-
----
-
-## LLM-провайдер: Anthropic по умолчанию, DeepSeek — по ключу заказчика
-
-Заказчик может подключить свой ключ DeepSeek вместо нашего Anthropic — их
-токены, их расходы. Технически это подмена `base_url`/ключа/имени модели:
-DeepSeek отдаёт Anthropic-совместимые ответы через тот же `anthropic` SDK на
-`https://api.deepseek.com/anthropic` — весь цикл ходов, инструменты и движок
-цены работают без изменений (`app/agent/providers/`).
-
-Переключение — `LLM_PROVIDER=anthropic|deepseek` в `.env` + перезапуск, или
-`/provider [anthropic|deepseek]` из Telegram без перезапуска.
-`LLM_FALLBACK_PROVIDER` включается сам после нескольких ошибок основного
-провайдера подряд, но не возвращается обратно автоматически — это осознанное
-решение, а не молчаливое.
-
-DeepSeek v4 по умолчанию думает перед ответом (`thinking`-блок) — при
-маленьком `max_tokens` это может съесть весь лимит и вернуть пустой ответ,
-поэтому здесь оно выключено (`DEEPSEEK_ENABLE_THINKING=false`). У DeepSeek
-также нет реального strict mode на этом пути (он есть только на другом,
-OpenAI-совместимом эндпоинте с другой формой инструментов) — вместо него
-двойная защита: валидация аргументов внутри инструментов и последний рубеж
-в `app/agent/loop.py` (цена в тексте без вызова инструмента → эскалация,
-независимо от провайдера). Подробности и цифры сравнения — в
-`docs/PROVIDER_COMPARISON.md`.
-
----
-
-## Модерация: одобрение только на ценовую уступку
-
-`MODERATION_MODE` (не в `.env` — переключается из Telegram `/moderation
-all|concessions_only|off`, без передеплоя) решает, что из ответа агента
-уходит клиенту сразу, а что ждёт кнопку оператора:
-
-| режим | что держит на одобрении |
-|---|---|
-| `concessions_only` (по умолчанию) | только ценовую уступку — `ConcessionDecision(allowed=True, kind="price")` — и случай, когда `decide()` сам передал решение человеку (`requires_operator_approval=True`) |
-| `all` | всё, как было раньше (откат к прежнему поведению) |
-| `off` | ничего, включая ценовые уступки — полная автономия |
-
-`DRY_RUN` остаётся отдельным аварийным рубильником НАД этой настройкой:
-пока он включён, на одобрение уходит всё независимо от `MODERATION_MODE` —
-он решает поведение только в живом режиме (`DRY_RUN=false`).
-
-**Когда именно решение уходит человеку.** Два случая, оба — «мы не знаем, а
-человек знает», а не отказ:
-
-| что неизвестно | правило | что видит агент |
+| Variable | Purpose | Example |
 |---|---|---|
-| занятость конкретного слота (`AvailabilityStatus.UNKNOWN`) | R6 | неценовые ступени выдаются как обычно, ценовая — оператору |
-| загрузка на дату (`occupancy_ratio is None`) | R7 | ценовая ступень — оператору |
+| `DATABASE_URL` | PostgreSQL connection | `postgresql+asyncpg://parmangal:parmangal@postgres:5432/parmangal` |
+| `REDIS_URL` | Redis connection | `redis://redis:6379/0` |
+| `LLM_PROVIDER` | model provider (only `deepseek` at runtime) | `deepseek` |
+| `DEEPSEEK_API_KEY` | model access | `sk-...` |
+| `ANTHROPIC_API_KEY` | optional, offline replay and judge only | `sk-ant-...` |
+| `AVITO_CLIENT_ID`, `AVITO_CLIENT_SECRET`, `AVITO_USER_ID` | Avito Messenger API | from the Avito developer cabinet |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OPS_CHAT_ID` | operator bot | `123456:AA...`, `-100...` |
+| `DRY_RUN` | `true`: nothing is sent to clients | `true` |
 
-Пока каталог YCLIENTS у заказчика пуст, срабатывают ОБА: занятость приходит
-`UNKNOWN` по всем зонам, а `occupancy_ratio` в `ToolExecutor` вообще не
-заполняется (см. «Известные пробелы»). Практический итог: **ценовая уступка
-через живого агента всегда доезжает до оператора и никогда не выдаётся
-автоматически.** Подтверждённо ЗАНЯТЫЙ слот — единственный случай, когда
-уступка отклоняется без человека: торговаться за занятое время нечего,
-клиенту нужно другое время, и это работа `check_availability`, а не скидки.
+Without Avito and model keys the service starts and `/health` responds, but no messages are processed. The full list of settings with comments is in `.env.example`.
 
-Карточка на запрос уступки (`app.ops.notifications.render_concession_request`)
-содержит всё для решения не глядя в админку: текст клиента и черновик
-ответа, ступень и триггер, цену до и после скидки, сколько уступок уже
-выдано сегодня, пометку `provisional`, если правило предварительное (окно
-2 дня — наше, не подтверждённое заказчиком). Кнопки — «Разрешить скидку» /
-«Отклонить» / «Взять на себя»; когда ответ уходит клиенту автономно,
-оператор всё равно видит переписку — карточка без кнопок одобрения, но с
-«Взять на себя», перехватить диалог можно всегда.
+## Testing
 
-Если оператор не отреагировал за `CONCESSION_APPROVAL_TIMEOUT_MINUTES`
-(по умолчанию 15) — клиенту уходит заранее посчитанный ответ БЕЗ скидки
-(отдельный ход агента с заблокированными уступками,
-`AgentLoop.run_turn(concessions_blocked=True)`), диалог продолжается, в
-лог действий оператора пишется `concession_timeout`. См. известный
-компромисс по храповику уступки в разделе ниже.
+```bash
+make install
+make test      # unit, pipeline and API tests
+make test-db   # the same plus PostgreSQL storage and migration tests (Docker)
+make lint      # ruff check + format check
+```
 
-Отдельно от гейта на одобрение — R10, дневной лимит уступок
-(`max_concessions_per_day` в `concessions.yaml`, по всем чатам сразу, не
-на диалог). При исчерпании ценовые ступени просто не выдаются (агент
-продолжает без скидки, ничего не держится на одобрении — отказывать уже
-нечему), но оператор получает отдельное предупреждение в Telegram и запись
-в лог `concession daily limit exhausted`. Граница дня — полночь по Москве.
+1,658 tests: 1,567 run without external services, 90 more run against PostgreSQL (repositories, JSONB/ARRAY/ENUM columns, Alembic migrations), and one checks the client photo bundle, which is not shipped here, so it is skipped. External APIs are faked with `respx` and in-memory stores. CI runs ruff and the full suite with a PostgreSQL service on every push ([workflow](.github/workflows/ci.yml)).
 
----
+## Project structure
 
-## Управление ассистентом из Telegram: цены и график без деплоя
+```
+app/agent/      tool-calling loop, prompts, tools, output guards, LLM providers
+app/pricing/    pricing engine and discount policy
+app/kb/         YAML knowledge base, loader, operator overrides
+app/booking/    YCLIENTS client, availability, short-lived holds
+app/channels/   Avito API client, payload parsing, OutboundGate, dedup, kill switch
+app/avito/      polling worker and cursors
+app/ops/        Telegram operator bot, self-check, follow-up scheduler
+app/admin/      admin pages (dialogs, leads, discounts, costs, catalog revert)
+app/quality/    replay harness: rule asserts and LLM judge
+migrations/     Alembic
+scripts/        one-off and maintenance tools (webhook registration, imports, probes)
+tests/          pytest suite
+docs/           operations runbook, deploy guide, provider comparison (in Russian)
+```
 
-`/menu` открывает инлайн-меню — «💰 Цены и услуги», «🕐 График работы»,
-«📊 Статистика», «⚙️ Режим работы», «📋 Диалоги». Только для
-`TELEGRAM_ALLOWED_USERS`, как и остальной бот. Список команд (`/menu`,
-`/stats`, `/moderation`, ...) выставляется в интерфейс Telegram сам, через
-`set_my_commands` при старте (`app.ops.handlers.set_bot_commands`) — не
-нужно вручную настраивать его у @BotFather.
+## Results
 
-**Почему это не запись в `catalog.yaml`.** Файловая система контейнера на
-Railway эфемерная — правка файла на диске пережила бы ровно до следующего
-деплоя и пропала бы МОЛЧА, а узнали бы об этом от клиента, которому назвали
-старую цену. Поэтому YAML в git остаётся базой (он ревьюится, он —
-источник правды на старте), а правки живут отдельным слоем в таблице
-`catalog_overrides` и накладываются поверх YAML при каждой загрузке
-(`app.kb.overrides.apply_overrides`) — тем же кодом, что использует и
-`load_catalog()` на старте процесса, и `/admin/catalog`, и бот.
+- **Production traffic, 20–30 October 2026** (measured from the production database): 57 active chats, 196 client messages, 121 agent replies sent. Reply latency from the client's message to the agent's reply: median 21 s, p90 28 s (n = 99), including the 10-second window that merges consecutive messages.
+- **Output guards in the same window:** 11 of 113 LLM replies were corrected or withheld before sending, most often a claim about free slots without an availability check (6).
+- **Offline replay of 27 labelled dialogues, 146 turns, DeepSeek, August 2026** (`docs/PROVIDER_COMPARISON.md`): 29 of 29 `calculate_price` calls were valid on the first attempt; median turn latency 4.0 s; cost 8.05 RUB for the run (about 0.30 RUB per dialogue, priced as a cache miss). The most frequent violation was two questions in one message (26 cases), which led to the one-question guard.
 
-**Путь правки:** Цены → зона (кнопками) → поле (только те, что реально
-есть у этой категории зон — у почасовой бани нет «₽/сутки») → бот
-спрашивает новое значение сообщением → показывает «было X, станет Y» и
-пересчитанный пример цены → подтверждение → сохранение. Тот же путь для
-графика (рабочее окно, праздничные даты).
+## Limitations & roadmap
 
-**Валидация — та же, что проходит YAML при старте, без исключений.**
-Каждое поле сперва проверяется по смыслу (`app/kb/editable.py`: цена не
-отрицательная и не похожа на опечатку с лишним нулём, минимум часов не
-больше суток, время в формате ЧЧ:ММ, даты в формате ММ-ДД), а затем весь
-получившийся документ целиком прогоняется через `validate_raw` — ту же
-функцию, что проверяет YAML на старте процесса. Отклонённое значение не
-сохраняется вообще, оператор видит понятную причину и может тут же
-прислать другое.
+- The bot does not write bookings to YCLIENTS: the integration token is read-only, so a manager confirms each booking after the prepayment (`create_booking` hands the details over).
+- Night slots (23:00–09:00) and New Year dates are handed to a manager: YCLIENTS exposes sessions only from 09:00 to 23:00, and holiday prices are not in the catalog yet.
+- Debounce and the echo registry live in process memory, so the service runs as a single instance; scaling out would move both to Redis.
+- Manager detection is a text-matching heuristic over Avito echoes; a manager who repeats the bot's last message word for word is taken for the bot.
+- The replay harness depends on labelled client dialogues that are kept private.
+- Code comments, prompts and operator docs are in Russian, the language of the business and its customers.
 
-**Спорные поля (`DisputedValue`) правятся так же**, и это осознанно способ
-закрывать их без нового деплоя: при сохранении в `resolved_from` кладётся
-`"оператор через Telegram (user_id=...)"`, блок `disputed` не переносится —
-правка закрывает спор, а не откладывает его.
+## My role
 
-**Журнал и откат.** Каждая правка — новая строка `catalog_overrides`, не
-перезапись: кто, когда, путь, что было, что стало. Видно в `/admin/catalog`
-(там же кнопка «Откатить» на последнюю действующую правку) и в боте после
-сохранения. Откат помечает `reverted_at`, а не удаляет строку — история
-помнит и саму правку, и то, что её отменили.
+Client project. I designed and built it end-to-end: architecture, LLM integration and guard rails, pricing and discount engine, Avito and YCLIENTS integrations, Telegram operator tooling, tests, CI, deployment on Railway and production support based on the client's feedback.
 
-**Правка доезжает до живого агента без рестарта.** После сохранения или
-отката `app.state.kb`, `AgentLoop.kb` и `MessagePipeline.kb` обновляются
-на новый `KnowledgeBase` синхронно (`app.main._on_kb_reloaded`), а воркер
-отложенных касаний читает `app.state.kb` каждый проход, а не хранит
-снимок — иначе правка рабочего окна не подействовала бы до следующего
-рестарта.
+## License
 
----
-
-## Текущие ограничения (ждут ответа заказчика)
-
-- **Ценовые уступки работают по нашему предварительному окну в 2 дня**
-  (вопрос 13.4). Каждая такая уступка помечается в логе
-  `provisional_policy: true`.
-- **Подтверждённый пол уступки один** — баня в выходные: 2 500 ₽/час и
-  2 часа минимума. По остальным зонам ценовые ступени запрещены (правило R8).
-- **Фотографии по зонам ещё не загружены** и **сверка объявлений Авито с
-  зонами неполная** (вопросы 12.1, 12.2) — единственные два глобальных
-  блокера на момент промта №11, оба зависят от заказчика, а не от кода. См.
-  `docs/LAUNCH_REPORT.md`.
-
-Праздничные даты и время закрытия (23:00) уже подтверждены заказчиком
-(`client_answers` 7.2 и 8.1) и не являются ограничением — см. `app/kb/catalog.yaml`.
-
-## Известные пробелы
-
-В отличие от раздела выше, это не вопросы к заказчику — это инженерный долг,
-который нужно закрывать следующими задачами.
-
-- **Одобрение оператора в Telegram не доставляет ответ клиенту.**
-  `OpsService.send_to_avito` не подключён в `app/main.py` — конструктор
-  зовётся без него, поэтому `approve()`/`edit()` меняют состояние очереди,
-  но наружу ничего не уходит (в тестах колбэк передаётся, поэтому тесты
-  этого не видели). Найдено при проверке исходящих путей на белый список
-  объявлений; сам список тут ни при чём — утечь по этому пути пока просто
-  нечему. Когда доставку будут включать, подключать нужно **гейт**
-  (`OutboundGate.send_message`), а не `AvitoClient` напрямую — см.
-  `app/channels/outbound_gate.py`; тесты на это уже есть в
-  `tests/test_ops.py`.
-
-- **Фото из очереди модерации не уходят.** Автономный ответ отправляет
-  до трёх фото после текста через гейт (`app/pipeline.py:_send_photos`), но
-  очередь на одобрение хранит только текст. Ход, где одновременно запрошены
-  скидка и фото (или любой ход при `DRY_RUN`/`MODERATION_MODE=all`), уходит
-  без картинок; в логе — «ход на модерации — N фото клиенту не отправлены».
-  Отправленными такие кадры не помечаются, так что на повторную просьбу
-  клиента они уйдут.
-
-- **Нет фото домика для отдыха** (`house_relax`): в выгрузке заказчика его
-  папки не было. Агент на просьбу о фото честно отвечает, что их нет.
-
-- ~~**`reset_timer_on_reply()` ни разу не вызывается**~~ — **закрыто.**
-  Конвейер входящих собран (`app/pipeline.py`), подключён как `handler` в
-  `webhooks.configure(...)`, и таймер сбрасывается на каждом сообщении
-  клиента — до всех проверок «отвечает ли агент», потому что ответивший
-  клиент не должен получить «Вы где-то затерялись?» даже если чат в этот
-  момент у оператора. Сквозной путь покрыт `tests/test_pipeline.py`.
-
-- ~~**Состояние модерации не переживает рестарт**~~ — **закрыто.**
-  `OpsStore` переведён на БД (`SqlAlchemyOpsStore`): флаги чата — в
-  колонках `chats`, очередь на одобрение — в новой таблице
-  `pending_replies`, журнал действий — в `operator_actions`. Раньше на
-  `InMemoryOpsStore` каждый редеплой Railway молча терял неодобренные
-  ответы, пока клиент их ждал. Счётчики модерации (approved/edited/rejected)
-  теперь СЧИТАЮТСЯ из журнала действий, а не хранятся отдельным полем —
-  два источника одних и тех же чисел рано или поздно разошлись бы.
-
-- ~~**Два источника правды по перехвату чата**~~ — **закрыто по сути.**
-  `ChatFlags` теперь читаются из тех же колонок `chats`, куда смотрит
-  конвейер, так что расходиться больше нечему. Конвейер по-прежнему
-  проверяет и `Chat.is_human_takeover`, и `OpsService.should_agent_reply()`
-  — но второе теперь про паузу агента и лимит ответов, а не про
-  параллельное состояние перехвата. То же касается `agent_reply_count`:
-  лимит `max_agent_replies_per_chat` больше не обнуляется рестартом.
-
-- **Изображения из Авито не доходят до агента.** Вебхук с картинкой без
-  текста сбрасывает таймер касаний и (см. `app/pipeline.py:
-  _handle_image_without_text`) отвечает клиенту шаблоном «Вижу фото, но
-  пока не могу его посмотреть...», чтобы диалог не проваливался в тишину —
-  но само изображение по-прежнему не скачивается и в `Message.image_ids`
-  не попадает: агент фото не видит, только знает, что оно было.
-
-- **Храповик уступки коммитится ДО одобрения оператором, не после.**
-  Когда `moderation_mode=concessions_only` держит ценовую уступку на
-  одобрении (`app/pipeline.py._run_turn`), `DialogConcessionState`
-  (`used_tiers`, `floor_reached`) сохраняется из ПЕРВОГО хода агента — того,
-  что предложил скидку — сразу же, а не после реального клика «Разрешить».
-  Если оператор отклонит запрос или сработает таймаут (15 минут, клиенту
-  уходит fallback БЕЗ скидки), ступень всё равно помечена использованной, а
-  пол цены — уже опущен, хотя клиент скидку не получил. Направление утечки
-  безопасное (агент потом либо чуть более консервативен с этой ступенью,
-  либо позже квотирует НИЖЕ, чем мог бы — никогда не выше уже обещанного,
-  главный инвариант `apply_dialog_floor` не нарушается), но это реальная
-  потеря маржи на отклонённых/просроченных запросах. Правильное решение —
-  коммитить состояние из «чистого» (`concessions_blocked=True`) хода по
-  умолчанию и применять эффект уступки отдельно, в момент
-  `OpsService.approve()` — не сделано ради объёма этой задачи.
-
-- ~~**R10 (дневной лимит уступок) не работает**~~ — **закрыто.**
-  `ToolExecutor` получает `concessions_today_provider` (тот же приём
-  внедрения, что у `booking_provider`/`photo_provider`) — асинхронный
-  колбэк без аргументов, вызывается лениво внутри `_tool_request_concession`
-  прямо перед `decide()`, а не один раз на весь ход: большинство ходов до
-  запроса на скидку вообще не доходят. В проде это
-  `SqlAlchemyDialogStore.count_concessions_today` — считает ПО ВСЕМ чатам за
-  сегодня, не по текущему диалогу. Граница дня — по Москве (`MOSCOW_TZ`,
-  фиксированный сдвиг UTC+3, не `zoneinfo`: Россия не переходит на летнее
-  время с 2014 года, а `zoneinfo("Europe/Moscow")` на `python:3.12-slim`
-  требует отдельно поставленного `tzdata`, которого может не быть в образе).
-  Когда лимит исчерпан, `ConcessionDecision.daily_limit_exhausted=True` —
-  структурный флаг, не разбор текста `denial_reason` — и конвейер шлёт
-  оператору отдельное предупреждение («⚠️ ДНЕВНОЙ ЛИМИТ ИСЧЕРПАН»), не
-  держит сообщение на одобрении (одобрять нечего — движок уже отказал сам).
-  Проверено на реальном Postgres: N уступок выдано → N+1-я запрещена,
-  завтрашний счётчик обнуляется, уступки из другого чата считаются в общем
-  лимите (`tests/test_sql_stores.py`, раздел «R10 сквозь весь путь»).
-
-- ~~**`_slot_known_free()` захардкожен в `False`**~~ — **закрыто.**
-  Метод не был подключён к `booking_provider`, всегда возвращал «слот не
-  свободен», и R6 отказывал раньше всех остальных правил — ценовая уступка
-  не выдавалась НИКОГДА, при том что вся механика вокруг выглядела рабочей.
-  Теперь занятость трёхзначна (`app/booking/base.py`, `AvailabilityStatus`):
-  `FREE` → проходим дальше по обычным правилам, `BUSY` → отказ (торговаться
-  за занятый слот нечего — клиенту нужно другое время), `UNKNOWN` → НЕ отказ:
-  неценовые ступени выдаются как обычно (они уводят клиента ОТ неизвестного
-  слота и не тратят денег), а ценовая уходит на решение оператору через
-  `requires_operator_approval`. Ответ провайдера кешируется на один ход,
-  общий с `check_availability`: иначе агент мог бы сказать клиенту
-  «свободно» и тут же выдать скидку по второму, другому ответу. Сбой
-  провайдера — тоже `UNKNOWN`, а не исключение наружу.
-
-- **`occupancy_ratio` в `ToolExecutor` не заполняется** — тот же класс
-  необорванного провода, что и `_slot_known_free` выше, только одним
-  правилом ниже. `ConcessionRequest.occupancy_ratio` всегда `None`, поэтому
-  R7 («загрузка на дату неизвестна») уводит ценовую ступень к оператору
-  даже когда слот подтверждённо свободен. Практический итог при пустом
-  каталоге YCLIENTS: ценовая уступка через живого агента ВСЕГДА доезжает до
-  человека и никогда не выдаётся автоматически. Это безопасно и совпадает с
-  замыслом `requires_operator_approval`, поэтому чинить срочно незачем;
-  правильное закрытие — считать долю занятых зон на дату через провайдера,
-  но пока каталог пуст, все 10 зон вернут `UNKNOWN` и `occupancy_ratio`
-  всё равно останется `None` — то есть 10 сетевых вызовов на ход без
-  единого изменения в поведении. Закрывать вместе с наполнением каталога.
-
-- **Откат каталога — только последней правки в целом, не по полю и не по
-  автору.** И кнопка в Telegram, и «Откатить» в `/admin/catalog` откатывают
-  ОДНУ И ТУ ЖЕ строку — последнюю действующую в `catalog_overrides`, кто бы
-  её ни внёс. Если оператор А поправил цену, а оператор Б следом поправил
-  график, «Откатить последнюю правку» у А отменит правку Б, а не свою.
-  Задача явно просила именно «кнопку отката последней правки» (не отката
-  по полю), поэтому это не недоделка, а буквальное исполнение — но при
-  нескольких активных операторах стоит иметь в виду и сверяться с
-  журналом (кто, когда, что) перед откатом, а не жать кнопку не глядя.
+Source code shown for review with the client's permission; no license is granted for reuse.
+© Nurzhan Kalmurat · [LinkedIn](https://linkedin.com/in/kalmuratnurzhan)
