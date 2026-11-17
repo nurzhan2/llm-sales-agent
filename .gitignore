@@ -63,3 +63,19 @@ dumps/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Client photos are not part of the public repository (app/media/bundled.py
+# looks them up at runtime; the production image ships them separately).
+app/media/bundled/*.jpg
+
+# Local working folders, agent notes, archives
+_audit/
+CLAUDE.md
+logs/
+dist/
+build/
+__MACOSX/
+*.session
+*.sqlite3
+*.zip
+*.rar
